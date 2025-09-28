@@ -63,7 +63,7 @@ bool writeGraphToDot(const Graph &graph,
                 const Color &c = it->second;
                 fillColor = colorToHex(c);
                 if (labelWithColorOrder)
-                    label = std::to_string(c.order);
+                    label = std::to_string(c.index);
             }
         }
         ofs << "  n" << id << " [label=\"" << label << "\", fillcolor=\"" << fillColor << "\", fontcolor=\"" << fontColor << "\"];\n";
@@ -98,7 +98,9 @@ bool renderDotToImage(const std::string &dotFilePath,
     std::ostringstream cmd;
     // On Windows, avoid extra quotes around executable and file paths
     cmd << engine << " -T" << format << " " << dotFilePath << " -o " << outputImagePath;
-    int code = std::system(cmd.str().c_str());
+    std::string command = cmd.str();
+    int code = std::system(command.c_str());
+
     return code == 0;
 }
 

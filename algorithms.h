@@ -6,41 +6,56 @@
 #include <unordered_set>
 #include <algorithm>
 #include <iostream>
+#include <random>
 
 struct Color
 {
-    int order;
+    int index;
     int r, g, b;
 };
 
 typedef std::unordered_map<Node *, Color> ColoringMap;
 
-// Hardcoded set of 16 clearly discernable colors
-static const Color PRESET_COLORS[16] = {
-    {0, 255, 0, 0},      // Red
-    {1, 0, 255, 0},      // Green
-    {2, 0, 0, 255},      // Blue
-    {3, 255, 255, 0},    // Yellow
-    {4, 255, 0, 255},    // Magenta
-    {5, 0, 255, 255},    // Cyan
-    {6, 255, 128, 0},    // Orange
-    {7, 128, 0, 255},    // Purple
-    {8, 128, 255, 0},    // Lime
-    {9, 0, 128, 255},    // Sky Blue
-    {10, 255, 0, 128},   // Pink
-    {11, 128, 255, 255}, // Light Cyan
-    {12, 255, 255, 128}, // Light Yellow
-    {13, 128, 128, 128}, // Gray
-    {14, 255, 128, 255}, // Light Magenta
-    {15, 128, 255, 128}  // Mint
-};
+class ColorPalette
+{
+public:
+    ColorPalette(int presetCount)
+        : presetCount_(presetCount)
+    {
+        for (int i = 0; i < presetCount_; ++i)
+        {
+            presetColors_.push_back(generateColor(i));
+        }
+    }
 
-inline int getPresetColorCount() { return 16; }
-inline Color getPresetColor(int idx) { return PRESET_COLORS[idx % getPresetColorCount()]; }
+    const Color &getColor(int i) const
+    {
+        return presetColors_[i];
+    }
+
+    void addColor()
+    {
+        presetColors_.push_back(generateColor(presetCount_++));
+    }
+
+    int size() const
+    {
+        return presetCount_;
+    }
+
+private:
+    Color generateColor(int i) const
+    {
+        return Color{i, (i * 97) % 256, (i * 57) % 256, (i * 37) % 256};
+    }
+
+    int presetCount_;
+    std::vector<Color> presetColors_;
+};
 
 // Forward declarations
 int computeNodeSaturation(Node *node, const ColoringMap &coloring);
-ColoringMap greedyColoring(Graph &graph, int minColors);
+ColoringMap greedyColoring(Graph &graph);
 std::unordered_map<Node *, int> computeSaturation(Graph &graph, const ColoringMap &coloring);
 
 struct Algorithm
@@ -52,8 +67,18 @@ struct Algorithm
 class HillClimbingColoring : public Algorithm
 {
 public:
-    HillClimbingColoring() = default;
+    // Default ctor seeds RNG using std::random_device (no high_resolution_clock)
+    HillClimbingColoring()
+        : rng_(std::mt19937(std::random_device{}())) {}
+
+    // Prefer passing an RNG so the caller controls determinism/seeding
+    explicit HillClimbingColoring(std::mt19937 rng)
+        : rng_(std::move(rng)) {}
+
     std::unordered_map<Node *, Color> run(Graph &graph, int iterations) override;
+
+private:
+    std::mt19937 rng_;
 };
 
 #endif // ALGORITHM_H

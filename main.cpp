@@ -10,21 +10,26 @@ int main()
     try
     {
         Graph graph;
-        const std::size_t numVertices = 10000;
-        const std::size_t numEdges = 400000;
+        // Use moderate defaults to keep runtime and visualization reasonable
+        const std::size_t numVertices = 100;
+        const std::size_t numEdges = 400;
         graph.generateRandomGraph(numVertices, numEdges, /*allowSelfLoops=*/false, /*seed=*/0);
 
         HillClimbingColoring solver;
-        const int iterations = 10;
+        const int iterations = 1000; // follow the Java example default
         ColoringMap coloring = solver.run(graph, iterations);
 
         const std::string dotPath = "graph.dot";
         const std::string imgPath = "graph.png";
 
-        if (!visualizeGraph(graph, &coloring, dotPath, imgPath, "dot", "png", /*labelWithColorOrder=*/true))
+        // Avoid rendering extremely large graphs which can fail or take too long
+        if (graph.getNodes().size() <= 2000)
         {
-            std::cerr << "Failed to visualize graph. Ensure Graphviz is installed and 'dot' is in PATH." << std::endl;
-            return 1;
+            if (!visualizeGraph(graph, &coloring, dotPath, imgPath))
+            {
+                std::cerr << "Failed to visualize graph. Ensure Graphviz is installed and 'dot' is in PATH." << std::endl;
+                return 1;
+            }
         }
 
         std::cout << "Generated random graph with " << numVertices << " vertices and " << numEdges
