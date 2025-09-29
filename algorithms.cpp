@@ -5,6 +5,8 @@
 #include <vector>
 #include <random>
 #include <climits>
+#include <memory>
+#include <algorithm>
 
 // Deterministic extra color generator (in case preset palette is insufficient)
 static Color generateExtraColor(int order)
@@ -43,23 +45,23 @@ static int countNodeConflicts(Node *node, const ColoringMap &coloring)
     return conflictCount;
 }
 
-void greedyRemoveConflicts(Graph &graph, ColoringMap &coloring, ColorPalette &palette)
+void greedyRemoveConflicts(StateNode &state)
 {
-    for (auto *node : graph.getNodes())
+    for (auto *node : state.graph->getNodes())
     {
-        int conflicts = countNodeConflicts(node, coloring);
+        int conflicts = countNodeConflicts(node, state.coloring);
         if (conflicts > 0)
         {
-            for (int colorIdx = 0; colorIdx < palette.size(); ++colorIdx)
+            for (int colorIdx = 0; colorIdx < state.palette.size(); ++colorIdx)
             {
-                if (colorIdx == coloring[node].index)
+                if (colorIdx == state.coloring[node].index)
                     continue; // skip current color
 
                 // Temporarily assign new color and count conflicts
-                coloring[node] = palette.getColor(colorIdx);
-                int newConflicts = countNodeConflicts(node, coloring);
+                state.coloring[node] = state.palette.getColor(colorIdx);
+                int newConflicts = countNodeConflicts(node, state.coloring);
 
-                if (conflicts == 0)
+                if (newConflicts == 0)
                 {
                     break;
                 }
@@ -69,19 +71,19 @@ void greedyRemoveConflicts(Graph &graph, ColoringMap &coloring, ColorPalette &pa
 }
 
 // Evaluate number of conflicting edges (endpoints share the same color)
-static int computeConflicts(const Graph &graph, const ColoringMap &coloring)
+static int computeConflicts(std::shared_ptr<const Graph> graph, const ColoringMap &coloring)
 {
     long long conflictCount = 0;
-    for (auto *node : graph.getNodes())
+    for (auto *node : graph->getNodes())
     {
         conflictCount += countNodeConflicts(node, coloring);
     }
     return static_cast<int>(conflictCount / 2);
 }
 
-std::tuple<ColorPalette, ColoringMap, std::unordered_map<int, int>> initialState(Graph &graph, std::mt19937 &rng_)
+std::tuple<ColorPalette, ColoringMap, std::unordered_map<int, int>> initialState(std::shared_ptr<Graph> graph, std::mt19937 &rng_)
 {
-    const auto &nodes = graph.getNodes();
+    const auto &nodes = graph->getNodes();
 
     // compute maxDegree once
     int maxDegree = 0;
@@ -104,15 +106,22 @@ std::tuple<ColorPalette, ColoringMap, std::unordered_map<int, int>> initialState
     return {palette, coloring, usedColors};
 }
 
-Node *selectNextNode(const Graph &graph, const ColoringMap &coloring, const std::unordered_map<int, int> &usedColors)
+StateNode initialStateNode(std::shared_ptr<Graph> graph, std::mt19937 &rng_)
+{
+    auto [palette, coloring, usedColors] = initialState(graph, rng_);
+    int conflicts = computeConflicts(graph, coloring);
+    return StateNode{graph, std::move(palette), std::move(coloring), conflicts, 0, std::move(usedColors)};
+}
+
+Node *selectNextNode(const StateNode &state)
 {
     Node *bestV = nullptr;
     int bestIncident = -1;
     int bestColorUse = INT_MAX; // we prefer the least-used color
-    for (auto *v : graph.getNodes())
+    for (auto *v : state.graph->getNodes())
     {
-        auto itv = coloring.find(v);
-        if (itv == coloring.end())
+        auto itv = state.coloring.find(v);
+        if (itv == state.coloring.end())
             continue;
         int vcol = itv->second.index;
 
@@ -120,8 +129,8 @@ Node *selectNextNode(const Graph &graph, const ColoringMap &coloring, const std:
         int incident = 0;
         for (auto *nbr : v->getNeighbors())
         {
-            auto itn = coloring.find(nbr);
-            if (itn != coloring.end() && itn->second.index == vcol)
+            auto itn = state.coloring.find(nbr);
+            if (itn != state.coloring.end() && itn->second.index == vcol)
                 ++incident;
         }
 
@@ -130,7 +139,7 @@ Node *selectNextNode(const Graph &graph, const ColoringMap &coloring, const std:
             continue;
 
         int colorUse = 0;
-        if (auto itUse = usedColors.find(vcol); itUse != usedColors.end())
+        if (auto itUse = state.usedColors.find(vcol); itUse != state.usedColors.end())
             colorUse = itUse->second;
 
         // choose the vertex whose conflicts are the most; tie-breaker: least used color
@@ -144,53 +153,42 @@ Node *selectNextNode(const Graph &graph, const ColoringMap &coloring, const std:
     return bestV;
 }
 
-int computeH(int conflicts, int usesOfColor)
+std::unordered_map<Node *, Color> HillClimbingColoring::run(std::shared_ptr<Graph> graph, int iterations)
 {
-    return conflicts * 1000 + usesOfColor;
-}
-
-std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int iterations)
-{
-    auto [palette, coloring, usedColors] = initialState(graph, rng_);
-    int conflicts = computeConflicts(graph, coloring);
+    auto current = initialStateNode(graph, rng_);
+    int conflicts = current.conflicts;
     std::cout << "Initial conflicts: " << conflicts << std::endl;
 
-    for (int it = 0; it < iterations && conflicts > 0; ++it)
+    for (int it = 0; it < iterations; ++it)
     {
-        Node *bestV = selectNextNode(graph, coloring, usedColors);
+        Node *bestV = selectNextNode(current);
         if (!bestV)
             break; // no conflicting vertex -> done
 
-        int oldInc = 0;
-        int oldColor = coloring[bestV].index;
-        for (auto *nbr : bestV->getNeighbors())
-        {
-            auto itn = coloring.find(nbr);
-            if (itn != coloring.end() && itn->second.index == oldColor)
-                ++oldInc;
-        }
+        int oldColor = current.coloring[bestV].index;
+        int oldInc = countNodeConflicts(bestV, current.coloring);
 
-        int oldH = computeH(conflicts, usedColors[oldColor]);
+        int oldH = current.computeH();
         int bestH = oldH;
         int bestConflicts = conflicts;
         int bestColor = oldColor;
 
         bool improved = false;
-        for (int c = 0; c < (int)palette.size(); ++c)
+        for (int c = 0; c < (int)current.palette.size(); ++c)
         {
             if (c == oldColor)
                 continue;
 
-            int newInc = 0;
-            for (auto *nbr : bestV->getNeighbors())
-            {
-                auto itn = coloring.find(nbr);
-                if (itn != coloring.end() && itn->second.index == c)
-                    ++newInc;
-            }
-
+            current.coloring[bestV] = current.palette.getColor(c);
+            int newInc = countNodeConflicts(bestV, current.coloring);
             int newConflicts = conflicts - oldInc + newInc;
-            int newH = computeH(newConflicts, usedColors[c]);
+            current.conflicts = newConflicts;
+
+            int newH = current.computeH();
+
+            // Revert changes
+            current.coloring[bestV] = current.palette.getColor(oldColor);
+            current.conflicts = conflicts;
 
             if (newH < bestH)
             {
@@ -205,9 +203,9 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int it
         {
             conflicts = bestConflicts;
 
-            usedColors[oldColor]--;
-            coloring[bestV] = palette.getColor(bestColor);
-            usedColors[bestColor]++;
+            current.usedColors[oldColor]--;
+            current.coloring[bestV] = current.palette.getColor(bestColor);
+            current.usedColors[bestColor]++;
         }
         else
         {
@@ -220,19 +218,18 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int it
     if (conflicts > 0)
     {
         std::cout << "Performing greedy conflict removal...\n";
-        greedyRemoveConflicts(graph, coloring, palette);
+        greedyRemoveConflicts(current);
     }
 
-    return coloring;
+    return current.coloring;
 }
 
-std::unordered_map<Node *, Color> SimulatedAnnealing::run(Graph &graph, int iterations)
+std::unordered_map<Node *, Color> SimulatedAnnealingColoring::run(std::shared_ptr<Graph> graph, int iterations)
 {
-    auto [palette, coloring, usedColors] = initialState(graph, rng_);
-    int conflicts = computeConflicts(graph, coloring);
-    std::cout << "Initial conflicts: " << conflicts << std::endl;
+    auto current = initialStateNode(graph, rng_);
+    std::cout << "Initial conflicts: " << current.conflicts << std::endl;
 
-    for (int t = 1; t <= iterations && conflicts > 0; ++t)
+    for (int t = 1; t <= iterations; ++t)
     {
         double T = schedule_(t); // keep as double, don't truncate
         if (T <= 1e-12)
@@ -242,18 +239,16 @@ std::unordered_map<Node *, Color> SimulatedAnnealing::run(Graph &graph, int iter
         }
 
         // 1) choose a vertex that contributes to conflicts (highest incident conflicts)
-        Node *bestV = selectNextNode(graph, coloring, usedColors);
+        Node *bestV = selectNextNode(current);
 
         if (bestV == nullptr)
         {
-            // no conflicting vertex -> solution found
-            std::cout << "No conflicting vertices at iteration " << t << ".\n";
             break;
         }
 
-        int oldColorIdx = coloring[bestV].index;
+        int oldColorIdx = current.coloring[bestV].index;
         int selectedColorIdx = oldColorIdx;
-        std::uniform_int_distribution<int> dist(0, static_cast<int>(palette.size() - 2));
+        std::uniform_int_distribution<int> dist(0, static_cast<int>(current.palette.size() - 2));
         {
             int r = dist(rng_);
             if (r >= oldColorIdx)
@@ -261,15 +256,21 @@ std::unordered_map<Node *, Color> SimulatedAnnealing::run(Graph &graph, int iter
             selectedColorIdx = r;
         }
 
-        int oldInc = countNodeConflicts(bestV, coloring);
-        Color savedOldColor = coloring[bestV];
+        int oldInc = countNodeConflicts(bestV, current.coloring);
+        Color savedOldColor = current.coloring[bestV];
 
-        coloring[bestV] = palette.getColor(selectedColorIdx);
-        int newInc = countNodeConflicts(bestV, coloring);
+        int oldConflicts = current.conflicts;
+        int oldH = current.computeH();
 
-        int newConflicts = conflicts - oldInc + newInc;
-        int oldH = computeH(conflicts, usedColors[oldColorIdx]);
-        int newH = computeH(newConflicts, usedColors[selectedColorIdx]);
+        current.coloring[bestV] = current.palette.getColor(selectedColorIdx);
+        int newInc = countNodeConflicts(bestV, current.coloring);
+        int newConflicts = current.conflicts - oldInc + newInc;
+        current.conflicts = newConflicts;
+        current.usedColors[oldColorIdx]--;
+        current.usedColors[selectedColorIdx]++;
+
+        int newH = current.computeH();
+
         int dE = newH - oldH;
 
         bool accept = false;
@@ -284,30 +285,170 @@ std::unordered_map<Node *, Color> SimulatedAnnealing::run(Graph &graph, int iter
             accept = (probDist(rng_) < acceptanceProb);
         }
 
-        if (accept)
+        if (!accept)
         {
-            conflicts = conflicts - oldInc + newInc;
-            usedColors[oldColorIdx]--;
-            usedColors[selectedColorIdx]++;
-        }
-        else
-        {
-            coloring[bestV] = savedOldColor;
+            current.coloring[bestV] = savedOldColor;
+            current.conflicts = oldConflicts;
+            current.usedColors[oldColorIdx]++;
+            current.usedColors[selectedColorIdx]--;
         }
     }
 
-    std::cout << "Final conflicts: " << conflicts << "\n";
+    std::cout << "Final conflicts: " << current.conflicts << "\n";
 
-    if (conflicts > 0)
+    if (current.conflicts > 0)
     {
         std::cout << "Performing greedy conflict removal...\n";
-        greedyRemoveConflicts(graph, coloring, palette);
+        greedyRemoveConflicts(current);
     }
 
-    return coloring;
+    return current.coloring;
 }
 
-double SimulatedAnnealing::schedule_(int t)
+double SimulatedAnnealingColoring::schedule_(int t)
 {
     return 100.0 * std::pow(0.95, t);
+}
+
+std::unordered_map<Node *, Color> BeamColoring::run(std::shared_ptr<Graph> graph, int iterations)
+{
+    auto start = initialStateNode(graph, rng_);
+    std::cout << "Initial conflicts: " << start.conflicts << std::endl;
+    k_ = (start.palette.size() - 1) / 2; // Set beam width to palette size - 1 for the color of current node
+
+    std::vector<StateNode> beam;
+    beam.reserve(k_);
+    beam.push_back(std::move(start));
+
+    std::vector<StateNode> candidates;
+    candidates.reserve(k_ * start.palette.size());
+
+    for (int it = 0; it < iterations; ++it)
+    {
+        for (auto &current : beam)
+        {
+            Node *bestV = selectNextNode(current);
+            if (!bestV)
+                break;
+            int oldColor = current.coloring[bestV].index;
+
+            int oldInc = countNodeConflicts(bestV, current.coloring);
+            int oldH = current.computeH();
+
+            bool improved = false;
+            std::shuffle(current.palette.begin(), current.palette.end(), rng_);
+
+            for (int c = 0; c < k_; ++c)
+            {
+                if (c == oldColor)
+                    c = c == (current.palette.size() - 1) ? k_ - 1 : k_ + 1;
+
+                ColoringMap newColoring(current.coloring);
+                newColoring[bestV] = current.palette.getColor(c);
+
+                UsedColorsMap newUsedColors(current.usedColors);
+                newUsedColors[oldColor]--;
+                newUsedColors[c]++;
+
+                int newInc = countNodeConflicts(bestV, newColoring);
+                int newConflicts = current.conflicts - oldInc + newInc;
+
+                candidates.emplace_back(
+                    current.graph,
+                    current.palette,
+                    std::move(newColoring),
+                    newConflicts,
+                    c,
+                    std::move(newUsedColors));
+            }
+        }
+        beam = kLeast(candidates, k_);
+        candidates.clear();
+        for (int i = 0; i < (int)beam.size(); ++i)
+        {
+            if (beam[i].conflicts == 0)
+            {
+                std::cout << "Found conflict-free coloring in beam at iteration " << it << "\n";
+                return beam[i].coloring;
+            }
+        }
+    }
+
+    StateNode result = std::move(beam[0]);
+    std::cout << "Final conflicts: " << result.conflicts << "\n";
+
+    if (result.conflicts > 0)
+    {
+        std::cout << "Performing greedy conflict removal...\n";
+        greedyRemoveConflicts(result);
+    }
+
+    return result.coloring;
+}
+
+int partition(std::vector<StateNode> &arr, int left, int right)
+{
+    // Last element is chosen as a pivot.
+    int pivotH = arr[right].computeH();
+    int i = left;
+
+    for (int j = left; j < right; j++)
+    {
+        if (arr[j].computeH() <= pivotH)
+        {
+            std::swap(arr[i], arr[j]);
+            i++;
+        }
+    }
+
+    std::swap(arr[i], arr[right]);
+
+    return i;
+}
+
+void quickSelect(std::vector<StateNode> &arr, int left, int right, int k)
+{
+    if (left <= right)
+    {
+        int pivotIdx = partition(arr, left, right);
+
+        // Count of all elements in the left part
+        int leftCnt = pivotIdx - left + 1;
+
+        // If leftCnt is equal to k, then we have
+        // found the k largest element
+        if (leftCnt == k)
+            return;
+
+        // Search in the left subarray
+        if (leftCnt > k)
+            quickSelect(arr, left, pivotIdx - 1, k);
+
+        // Reduce the k by number of elements already covered
+        // and search in the right subarray
+        else
+            quickSelect(arr, pivotIdx + 1, right, k - leftCnt);
+    }
+}
+
+std::vector<StateNode> kLeast(std::vector<StateNode> &arr, int k)
+{
+    int n = arr.size();
+    if (k > n)
+        k = n;
+
+    quickSelect(arr, 0, n - 1, k);
+
+    // Move the first k elements to a new vector
+    std::vector<StateNode> res;
+    res.reserve(k);
+    for (int i = 0; i < k; ++i)
+    {
+        res.push_back(std::move(arr[i]));
+    }
+
+    // Sort the result in ascending order
+    std::sort(res.begin(), res.end(), [](const StateNode &a, const StateNode &b)
+              { return a.computeH() < b.computeH(); });
+    return res;
 }

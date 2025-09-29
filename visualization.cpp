@@ -27,7 +27,7 @@ static std::string colorToHex(const Color &c)
     return "#" + toHex(c.r) + toHex(c.g) + toHex(c.b);
 }
 
-bool writeGraphToDot(const Graph &graph,
+bool writeGraphToDot(std::shared_ptr<const Graph> graph,
                      const ColoringMap *coloring,
                      const std::string &dotFilePath,
                      bool labelWithColorOrder)
@@ -39,7 +39,7 @@ bool writeGraphToDot(const Graph &graph,
     // Map Node* to an index for stable labels
     std::unordered_map<const Node *, int> indexOf;
     int idx = 0;
-    for (const auto node : graph.getNodes())
+    for (const auto node : graph->getNodes())
     {
         indexOf[node] = idx++;
     }
@@ -49,7 +49,7 @@ bool writeGraphToDot(const Graph &graph,
     ofs << "  overlap=false;\n";
 
     // Emit nodes
-    for (const auto node : graph.getNodes())
+    for (const auto node : graph->getNodes())
     {
         const int id = indexOf[node];
         std::string label = std::to_string(id);
@@ -72,7 +72,7 @@ bool writeGraphToDot(const Graph &graph,
     // Emit edges (allowing parallel edges)
     // We'll output an undirected edge for each neighbor entry where u's index <= v's index
     // to avoid duplicating the same undirected edge twice in the DOT (but allow parallel edges by not de-duplicating pairs occurring multiple times).
-    for (const auto u : graph.getNodes())
+    for (const auto u : graph->getNodes())
     {
         const int uid = indexOf[u];
         for (const auto v : u->getNeighbors())
@@ -104,7 +104,7 @@ bool renderDotToImage(const std::string &dotFilePath,
     return code == 0;
 }
 
-bool visualizeGraph(const Graph &graph,
+bool visualizeGraph(std::shared_ptr<const Graph> graph,
                     const ColoringMap *coloring,
                     const std::string &dotFilePath,
                     const std::string &outputImagePath,

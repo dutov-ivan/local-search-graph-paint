@@ -10,7 +10,7 @@
 //   its label will be the color order; otherwise, the label will be the node index.
 // - Nodes are rendered as circles.
 // Returns true on success, false on failure.
-bool writeGraphToDot(const Graph &graph,
+bool writeGraphToDot(std::shared_ptr<const Graph> graph,
                      const ColoringMap *coloring,
                      const std::string &dotFilePath,
                      bool labelWithColorOrder = true);
@@ -26,7 +26,7 @@ bool renderDotToImage(const std::string &dotFilePath,
 
 // Convenience helper: write a DOT file for the given graph and coloring and immediately render it.
 // Returns true on success of both steps.
-bool visualizeGraph(const Graph &graph,
+bool visualizeGraph(std::shared_ptr<const Graph> graph,
                     const ColoringMap *coloring,
                     const std::string &dotFilePath,
                     const std::string &outputImagePath,

@@ -9,14 +9,14 @@ int main()
 {
     try
     {
-        Graph graph;
+        auto graph = std::make_shared<Graph>();
         // Use moderate defaults to keep runtime and visualization reasonable
         const std::size_t numVertices = 3000;
-        const std::size_t numEdges = 10000;
-        graph.generateRandomGraph(numVertices, numEdges, /*allowSelfLoops=*/false, /*seed=*/0);
+        const std::size_t numEdges = 5000;
+        graph->generateRandomGraph(numVertices, numEdges, /*allowSelfLoops=*/false, /*seed=*/0);
 
-        SimulatedAnnealing solver;
-        const int iterations = 1000;
+        BeamColoring solver;
+        const int iterations = 10000;
         ColoringMap coloring = solver.run(graph, iterations);
 
         // Count distinct colors
@@ -31,7 +31,7 @@ int main()
         const std::string imgPath = "graph.png";
 
         // Avoid rendering extremely large graphs which can fail or take too long
-        if (graph.getNodes().size() <= 2000)
+        if (graph->getNodes().size() <= 2000)
         {
             if (!visualizeGraph(graph, &coloring, dotPath, imgPath))
             {
