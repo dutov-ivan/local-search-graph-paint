@@ -11,13 +11,21 @@ int main()
     {
         Graph graph;
         // Use moderate defaults to keep runtime and visualization reasonable
-        const std::size_t numVertices = 100;
-        const std::size_t numEdges = 400;
+        const std::size_t numVertices = 10;
+        const std::size_t numEdges = 20;
         graph.generateRandomGraph(numVertices, numEdges, /*allowSelfLoops=*/false, /*seed=*/0);
 
         HillClimbingColoring solver;
-        const int iterations = 1000; // follow the Java example default
+        const int iterations = 1000;
         ColoringMap coloring = solver.run(graph, iterations);
+
+        // Count distinct colors
+        std::unordered_set<int> distinctColors;
+        for (const auto &[node, color] : coloring)
+        {
+            distinctColors.insert(color.index);
+        }
+        std::cout << "Used " << distinctColors.size() << " colors." << std::endl;
 
         const std::string dotPath = "graph.dot";
         const std::string imgPath = "graph.png";

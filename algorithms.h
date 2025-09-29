@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iostream>
 #include <random>
+#include <functional>
 
 struct Color
 {
@@ -79,6 +80,22 @@ public:
 
 private:
     std::mt19937 rng_;
+};
+
+class SimulatedAnnealing : public Algorithm
+{
+public:
+    SimulatedAnnealing()
+        : rng_(std::mt19937(std::random_device{}())) {}
+
+    explicit SimulatedAnnealing(std::mt19937 rng)
+        : rng_(std::move(rng)) {}
+
+    std::unordered_map<Node *, Color> run(Graph &graph, int iterations) override;
+
+private:
+    std::mt19937 rng_;
+    double schedule_(int t);
 };
 
 #endif // ALGORITHM_H

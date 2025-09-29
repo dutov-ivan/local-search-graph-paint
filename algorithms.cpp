@@ -78,11 +78,9 @@ static int computeConflicts(const Graph &graph, const ColoringMap &coloring)
     return static_cast<int>(conflictCount / 2);
 }
 
-std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int iterations)
+std::tuple<ColorPalette, ColoringMap, std::unordered_map<int, int>> initialState(Graph &graph, std::mt19937 &rng_)
 {
     const auto &nodes = graph.getNodes();
-    if (nodes.empty())
-        return {};
 
     // compute maxDegree once
     int maxDegree = 0;
@@ -92,40 +90,54 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int it
     ColorPalette palette(maxDegree + 1); // enough colors for any node's incident edges
 
     ColoringMap coloring;
+    std::unordered_map<int, int> usedColors;
     std::uniform_int_distribution<int> colorDist(0, static_cast<int>(palette.size()) - 1);
     for (auto *node : nodes)
+    {
         coloring[node] = palette.getColor(colorDist(rng_));
+        usedColors[coloring[node].index]++;
+    }
 
     visualizeGraph(graph, &coloring, "initial.dot", "initial.png", "dot", "png", false);
+    return {palette, coloring, usedColors};
+}
 
+Node *selectNextNode(const Graph &graph, const ColoringMap &coloring)
+{
+    Node *bestV = nullptr;
+    int bestIncident = 0;
+    for (auto *v : graph.getNodes())
+    {
+        int incident = 0;
+        auto itv = coloring.find(v);
+        if (itv == coloring.end())
+            continue; // or treat as 0
+        int vcol = itv->second.index;
+        for (auto *nbr : v->getNeighbors())
+        {
+            auto itn = coloring.find(nbr);
+            if (itn != coloring.end() && itn->second.index == vcol)
+                ++incident;
+        }
+        if (incident > bestIncident)
+        {
+            bestIncident = incident;
+            bestV = v;
+        }
+    }
+    return bestV;
+}
+
+std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int iterations)
+{
+    auto [palette, coloring, usedColors] = initialState(graph, rng_);
     int conflicts = computeConflicts(graph, coloring);
     std::cout << "Initial conflicts: " << conflicts << std::endl;
 
     for (int it = 0; it < iterations && conflicts > 0; ++it)
     {
         // pick vertex with a conflict (best: the one with highest incident conflicts)
-        Node *bestV = nullptr;
-        int bestIncident = 0;
-        for (auto *v : nodes)
-        {
-            int incident = 0;
-            auto itv = coloring.find(v);
-            if (itv == coloring.end())
-                continue; // or treat as 0
-            int vcol = itv->second.index;
-            for (auto *nbr : v->getNeighbors())
-            {
-                auto itn = coloring.find(nbr);
-                if (itn != coloring.end() && itn->second.index == vcol)
-                    ++incident;
-            }
-            if (incident > bestIncident)
-            {
-                bestIncident = incident;
-                bestV = v;
-            }
-        }
-
+        Node *bestV = selectNextNode(graph, coloring);
         if (!bestV)
             break; // no conflicting vertex -> done
 
@@ -153,10 +165,12 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int it
                     ++newInc;
             }
 
-            int newConflicts = conflicts - oldInc + newInc; // local delta on edge count
+            int newConflicts = conflicts - oldInc + newInc;
             if (newConflicts <= conflicts)
             {
+                usedColors[oldColor]--;
                 coloring[bestV] = palette.getColor(c);
+                usedColors[c]++;
                 conflicts = newConflicts;
                 improved = true;
                 if (conflicts == 0)
@@ -169,11 +183,112 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(Graph &graph, int it
 
         if (!improved)
         {
-            // optional: try random restart or pick different vertex; for now stop
             break;
         }
     }
 
     std::cout << "Final conflicts: " << conflicts << "\n";
     return coloring;
+}
+
+std::unordered_map<Node *, Color> SimulatedAnnealing::run(Graph &graph, int iterations)
+{
+    auto [palette, coloring, usedColors] = initialState(graph, rng_);
+    int conflicts = computeConflicts(graph, coloring);
+    std::cout << "Initial conflicts: " << conflicts << std::endl;
+
+    // sanity: if palette has only one color nothing to do
+    if (palette.size() <= 1)
+    {
+        std::cout << "Palette too small, nothing to do.\n";
+        return coloring;
+    }
+
+    for (int t = 1; t <= iterations && conflicts > 0; ++t)
+    {
+        double T = schedule_(t); // keep as double, don't truncate
+        if (T <= 1e-12)
+        { // stop when temperature effectively zero
+            std::cout << "Temperature ~ 0, stopping.\n";
+            break;
+        }
+
+        // 1) choose a vertex that contributes to conflicts (highest incident conflicts)
+        Node *bestV = selectNextNode(graph, coloring);
+
+        if (bestV == nullptr)
+        {
+            // no conflicting vertex -> solution found
+            std::cout << "No conflicting vertices at iteration " << t << ".\n";
+            break;
+        }
+
+        // 2) pick a different color index for bestV (safe selection)
+        int oldColorIdx = coloring[bestV].index;
+        int selectedColorIdx = oldColorIdx;
+        // pick a different color index uniformly
+        std::uniform_int_distribution<int> dist(0, static_cast<int>(palette.size() - 2));
+        {
+            int r = dist(rng_);
+            if (r >= oldColorIdx)
+                ++r; // shift values >= oldColorIdx to skip old color
+            selectedColorIdx = r;
+        }
+
+        // 3) evaluate local delta (incident conflicts on bestV)
+        int oldInc = countNodeConflicts(bestV, coloring); // uses oldColorIdx
+        Color savedOldColor = coloring[bestV];            // save object to revert if needed
+
+        // temporarily apply candidate color
+        coloring[bestV] = palette.getColor(selectedColorIdx);
+        int newInc = countNodeConflicts(bestV, coloring);
+
+        int dE = newInc - oldInc; // positive -> worse (more conflicts)
+
+        bool accept = false;
+        if (dE <= 0)
+        {
+            // improvement (or equal) -> accept
+            accept = true;
+        }
+        else
+        {
+            // worse -> accept with probability exp(-dE / T)
+            double acceptanceProb = std::exp(-static_cast<double>(dE) / T);
+            std::uniform_real_distribution<double> probDist(0.0, 1.0);
+            accept = (probDist(rng_) < acceptanceProb);
+        }
+
+        if (accept)
+        {
+            // commit: update global conflict count using local delta
+            conflicts = conflicts - oldInc + newInc;
+        }
+        else
+        {
+            // revert coloring
+            coloring[bestV] = savedOldColor;
+            // conflicts unchanged
+        }
+
+        // optional debug: every N iterations recompute full conflicts to ensure consistency
+        if ((t & 127) == 0)
+        {
+            int check = computeConflicts(graph, coloring);
+            if (check != conflicts)
+            {
+                std::cerr << "WARNING: conflict counter mismatch: cached=" << conflicts
+                          << " recomputed=" << check << " at t=" << t << "\n";
+                conflicts = check; // resync to safe state
+            }
+        }
+    }
+
+    std::cout << "Final conflicts: " << conflicts << "\n";
+    return coloring;
+}
+
+double SimulatedAnnealing::schedule_(int t)
+{
+    return 100.0 * std::pow(0.95, t);
 }
