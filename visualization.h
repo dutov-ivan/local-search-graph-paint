@@ -34,4 +34,5 @@ bool visualizeGraph(std::shared_ptr<const Graph> graph,
                     const std::string &format = "png",
                     bool labelWithColorOrder = false);
 
+bool isVisualization(int nodeCount, int edgeCount);
 #endif // VISUALIZATION_H

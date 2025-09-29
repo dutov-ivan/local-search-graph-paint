@@ -71,7 +71,7 @@ public:
     {
         auto it = usedColors.find(lastUsedColorIndex);
         int colorUsage = (it != usedColors.end()) ? it->second : 0;
-        return conflicts * 100 + colorUsage;
+        return conflicts * 100 - colorUsage;
     }
 
     StateNode() = default;

@@ -101,8 +101,6 @@ std::tuple<ColorPalette, ColoringMap, std::unordered_map<int, int>> initialState
         usedColors[coloring[node].index]++;
     }
 
-    if (nodes.size() <= 2000)
-        visualizeGraph(graph, &coloring, "initial.dot", "initial.png", "dot", "png", false);
     return {palette, coloring, usedColors};
 }
 
@@ -446,9 +444,5 @@ std::vector<StateNode> kLeast(std::vector<StateNode> &arr, int k)
     {
         res.push_back(std::move(arr[i]));
     }
-
-    // Sort the result in ascending order
-    std::sort(res.begin(), res.end(), [](const StateNode &a, const StateNode &b)
-              { return a.computeH() < b.computeH(); });
     return res;
 }

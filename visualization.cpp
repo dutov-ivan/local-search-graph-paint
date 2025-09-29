@@ -52,7 +52,6 @@ bool writeGraphToDot(std::shared_ptr<const Graph> graph,
     for (const auto node : graph->getNodes())
     {
         const int id = indexOf[node];
-        std::string label = std::to_string(id);
         std::string fillColor = "#FFFFFF"; // default white
         std::string fontColor = "#000000";
         if (coloring)
@@ -62,11 +61,9 @@ bool writeGraphToDot(std::shared_ptr<const Graph> graph,
             {
                 const Color &c = it->second;
                 fillColor = colorToHex(c);
-                if (labelWithColorOrder)
-                    label = std::to_string(c.index);
             }
         }
-        ofs << "  n" << id << " [label=\"" << label << "\", fillcolor=\"" << fillColor << "\", fontcolor=\"" << fontColor << "\"];\n";
+        ofs << "  n" << id << " [label=\"\"" << "fillcolor=\"" << fillColor << "\", fontcolor=\"" << fontColor << "\"];\n";
     }
 
     // Emit edges (allowing parallel edges)
@@ -115,4 +112,9 @@ bool visualizeGraph(std::shared_ptr<const Graph> graph,
     if (!writeGraphToDot(graph, coloring, dotFilePath, labelWithColorOrder))
         return false;
     return renderDotToImage(dotFilePath, outputImagePath, engine, format);
+}
+
+bool isVisualization(int nodeCount, int edgeCount)
+{
+    return nodeCount <= 100 && edgeCount <= 500;
 }
