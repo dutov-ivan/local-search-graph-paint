@@ -32,6 +32,6 @@ bool visualizeGraph(const Graph &graph,
                     const std::string &outputImagePath,
                     const std::string &engine = "dot",
                     const std::string &format = "png",
-                    bool labelWithColorOrder = true);
+                    bool labelWithColorOrder = false);
 
 #endif // VISUALIZATION_H

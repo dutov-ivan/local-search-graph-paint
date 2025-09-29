@@ -11,11 +11,11 @@ int main()
     {
         Graph graph;
         // Use moderate defaults to keep runtime and visualization reasonable
-        const std::size_t numVertices = 10;
-        const std::size_t numEdges = 20;
+        const std::size_t numVertices = 3000;
+        const std::size_t numEdges = 10000;
         graph.generateRandomGraph(numVertices, numEdges, /*allowSelfLoops=*/false, /*seed=*/0);
 
-        HillClimbingColoring solver;
+        SimulatedAnnealing solver;
         const int iterations = 1000;
         ColoringMap coloring = solver.run(graph, iterations);
 

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <random>
 #include <functional>
+#include <vector>
 
 struct Color
 {
