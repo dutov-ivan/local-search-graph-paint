@@ -57,5 +57,6 @@
         "fstream": "cpp",
         "iomanip": "cpp",
         "sstream": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/ivan/code/local-search-graph-paint/wasm"
 }

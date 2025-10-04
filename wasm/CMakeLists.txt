@@ -18,3 +18,5 @@ add_executable(graph-coloring-local-search
 	visualization.cpp
 )
 
+target_link_options(graph-coloring-local-search PRIVATE --bind)
+

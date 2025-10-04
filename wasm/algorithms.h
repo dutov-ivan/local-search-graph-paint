@@ -10,6 +10,7 @@
 #include <functional>
 #include <vector>
 #include <memory>
+#include <emscripten/emscripten.h>
 
 struct Color
 {

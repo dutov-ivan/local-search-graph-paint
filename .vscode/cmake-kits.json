@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Emscripten",
+    "toolchainFile": "/usr/local/lib/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+    "compilers": {
+      "C": "/usr/local/lib/emsdk/upstream/emscripten/emcc",
+      "CXX": "/usr/local/lib/emsdk/upstream/emscripten/em++"
+    }
+  }
+]
