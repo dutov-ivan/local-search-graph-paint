@@ -1,7 +1,5 @@
 // Algorithm implementations moved from header to avoid multiple definition issues
 #include "algorithms.h"
-#include "visualization.h"
-
 #include <vector>
 #include <random>
 #include <climits>
@@ -25,7 +23,7 @@ static Color generateExtraColor(int order)
             channel(151, 197)};
 }
 
-static int countNodeConflicts(Node *node, const ColoringMap &coloring)
+static int countNodeConflicts(GraphNode *node, const ColoringMap &coloring)
 {
     int conflictCount = 0;
     auto itNode = coloring.find(node);
@@ -111,9 +109,9 @@ StateNode initialStateNode(std::shared_ptr<Graph> graph, std::mt19937 &rng_)
     return StateNode{graph, std::move(palette), std::move(coloring), conflicts, 0, std::move(usedColors)};
 }
 
-Node *selectNextNode(const StateNode &state)
+GraphNode *selectNextNode(const StateNode &state)
 {
-    Node *bestV = nullptr;
+    GraphNode *bestV = nullptr;
     int bestIncident = -1;
     int bestColorUse = INT_MAX; // we prefer the least-used color
     for (auto *v : state.graph->getNodes())
@@ -151,7 +149,7 @@ Node *selectNextNode(const StateNode &state)
     return bestV;
 }
 
-std::unordered_map<Node *, Color> HillClimbingColoring::run(std::shared_ptr<Graph> graph, int iterations)
+std::unordered_map<GraphNode *, Color> HillClimbingColoring::run(std::shared_ptr<Graph> graph, int iterations)
 {
     auto current = initialStateNode(graph, rng_);
     int conflicts = current.conflicts;
@@ -159,7 +157,7 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(std::shared_ptr<Grap
 
     for (int it = 0; it < iterations; ++it)
     {
-        Node *bestV = selectNextNode(current);
+        GraphNode *bestV = selectNextNode(current);
         if (!bestV)
             break; // no conflicting vertex -> done
 
@@ -222,7 +220,7 @@ std::unordered_map<Node *, Color> HillClimbingColoring::run(std::shared_ptr<Grap
     return current.coloring;
 }
 
-std::unordered_map<Node *, Color> SimulatedAnnealingColoring::run(std::shared_ptr<Graph> graph, int iterations)
+std::unordered_map<GraphNode *, Color> SimulatedAnnealingColoring::run(std::shared_ptr<Graph> graph, int iterations)
 {
     auto current = initialStateNode(graph, rng_);
     std::cout << "Initial conflicts: " << current.conflicts << std::endl;
@@ -237,7 +235,7 @@ std::unordered_map<Node *, Color> SimulatedAnnealingColoring::run(std::shared_pt
         }
 
         // 1) choose a vertex that contributes to conflicts (highest incident conflicts)
-        Node *bestV = selectNextNode(current);
+        GraphNode *bestV = selectNextNode(current);
 
         if (bestV == nullptr)
         {
@@ -308,7 +306,7 @@ double SimulatedAnnealingColoring::schedule_(int t)
     return 100.0 * std::pow(0.95, t);
 }
 
-std::unordered_map<Node *, Color> BeamColoring::run(std::shared_ptr<Graph> graph, int iterations)
+std::unordered_map<GraphNode *, Color> BeamColoring::run(std::shared_ptr<Graph> graph, int iterations)
 {
     auto start = initialStateNode(graph, rng_);
     std::cout << "Initial conflicts: " << start.conflicts << std::endl;
@@ -325,7 +323,7 @@ std::unordered_map<Node *, Color> BeamColoring::run(std::shared_ptr<Graph> graph
     {
         for (auto &current : beam)
         {
-            Node *bestV = selectNextNode(current);
+            GraphNode *bestV = selectNextNode(current);
             if (!bestV)
                 break;
             int oldColor = current.coloring[bestV].index;

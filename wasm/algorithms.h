@@ -10,7 +10,7 @@
 #include <functional>
 #include <vector>
 #include <memory>
-#include <emscripten/emscripten.h>
+#include <emscripten/bind.h>
 
 struct Color
 {
@@ -18,7 +18,7 @@ struct Color
     int r, g, b;
 };
 
-typedef std::unordered_map<Node *, Color> ColoringMap;
+typedef std::unordered_map<GraphNode *, Color> ColoringMap;
 
 class ColorPalette
 {
@@ -75,7 +75,15 @@ public:
         return conflicts * 100 - colorUsage;
     }
 
-    StateNode() = default;
+    StateNode()
+        : graph(nullptr),
+          palette(0), // Initialize with 0 preset colors
+          coloring(),
+          conflicts(0),
+          lastUsedColorIndex(0),
+          usedColors()
+    {
+    }
 
     // Parameterized constructor
     StateNode(std::shared_ptr<Graph> g, ColorPalette p, ColoringMap c, int conf, int lastColor, UsedColorsMap used)
@@ -119,7 +127,7 @@ public:
 struct Algorithm
 {
     virtual ~Algorithm() = default;
-    virtual std::unordered_map<Node *, Color> run(std::shared_ptr<Graph> graph, int iterations) = 0;
+    virtual std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) = 0;
 };
 
 class HillClimbingColoring : public Algorithm
@@ -133,7 +141,7 @@ public:
     explicit HillClimbingColoring(std::mt19937 rng)
         : rng_(std::move(rng)) {}
 
-    std::unordered_map<Node *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
+    std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
 
 private:
     std::mt19937 rng_;
@@ -148,7 +156,7 @@ public:
     explicit SimulatedAnnealingColoring(std::mt19937 rng)
         : rng_(std::move(rng)) {}
 
-    std::unordered_map<Node *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
+    std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
 
 private:
     std::mt19937 rng_;
@@ -164,7 +172,7 @@ public:
     explicit BeamColoring(std::mt19937 rng)
         : rng_(std::move(rng)) {}
 
-    std::unordered_map<Node *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
+    std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
 
 private:
     int k_;

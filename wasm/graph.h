@@ -2,33 +2,44 @@
 #define GRAPH_H
 
 #include <vector>
+#include <random>
+#include <emscripten/bind.h>
+#include "init.h"
 
-class Node
+class GraphNode
 {
 public:
-    Node() = default;
-    void addNeighbor(Node *neighbor);
-    const std::vector<Node *> &getNeighbors() const;
+    GraphNode() = default;
+    void addNeighbor(GraphNode *neighbor);
+    const std::vector<GraphNode *> &getNeighbors() const;
 
 private:
-    std::vector<Node *> neighbors;
+    std::vector<GraphNode *> neighbors;
 };
 
 class Graph
 {
 public:
-    void addNode(Node *node);
-    void addEdge(Node *a, Node *b);
-    const std::vector<Node *> &getNodes() const;
+    void addNode(GraphNode *node);
+    void addEdge(GraphNode *a, GraphNode *b);
+    void reserveNodes(std::size_t n);
+    const std::vector<GraphNode *> &getNodes() const;
 
     // Generate a graph with the specified number of vertices and edges.
     // - Parallel edges are allowed by design (multiple edges between the same pair of vertices).
     // - Self-loops are disabled by default but can be enabled via allowSelfLoops.
     // - If seed == 0, a non-deterministic seed will be used.
-    void generateRandomGraph(std::size_t numVertices, std::size_t numEdges, bool allowSelfLoops = false, unsigned int seed = 0);
 
 private:
-    std::vector<Node *> nodes;
+    std::vector<GraphNode *> nodes_;
 };
 
+struct RandomGraphOptions
+{
+    std::size_t numVertices;
+    std::size_t numEdges;
+    bool allowSelfLoops = false;
+};
+
+Graph generateRandomGraph(const RandomGraphOptions &options, std::mt19937 &rng);
 #endif

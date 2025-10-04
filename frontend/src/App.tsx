@@ -6,15 +6,31 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Play, RotateCcw, FastForward } from 'lucide-react'
 import './App.css'
+import factory from "../../build/GraphColoring.js"
 
 function App() {
   const [iterations, setIterations] = useState('10000')
-  const [vertices, setVertices] = useState('50')
-  const [edges, setEdges] = useState('120')
+  const [vertices, setVertices] = useState(50)
+  const [edges, setEdges] = useState(120)
+
+  const generateGraph = async () => {
+    const options = {
+      numVertices: vertices,
+      numEdges: edges,
+      allowSelfLoops: false,
+    }
+
+    await factory().then((Module) => {
+      const graph = Module.generateRandomGraph(options)
+      console.log(graph.getNodes());
+    })
+
+
+  }
 
   return (
     <div className="h-screen bg-white overflow-hidden lg:overflow-hidden overflow-y-auto">
-      <div className="h-full lg:h-full min-h-screen lg:min-h-0 p-4 flex flex-col">
+      <div className="lg:h-full min-h-screen lg:min-h-0 p-4 flex flex-col">
         <div className="flex flex-col gap-4 lg:gap-4 lg:flex-row flex-1 min-h-0 max-w-7xl mx-auto w-full">
           {/* Graph Visualization Section */}
           <div className="flex-1 flex flex-col min-h-0">
@@ -74,6 +90,7 @@ function App() {
                     </Label>
                     <Input
                       id="vertices"
+                      type='number'
                       value={vertices}
                       onChange={(e) => setVertices(e.target.value)}
                       className="mt-1 h-8 text-xs"
@@ -87,6 +104,7 @@ function App() {
                     </Label>
                     <Input
                       id="edges"
+                      type='number'
                       value={edges}
                       onChange={(e) => setEdges(e.target.value)}
                       className="mt-1 h-8 text-xs"
@@ -130,7 +148,7 @@ function App() {
 
                 {/* Generate Button */}
                 <div className="mt-auto flex-shrink-0">
-                  <Button className="w-full bg-red-300 text-black hover:bg-red-400">
+                  <Button className="w-full bg-red-300 text-black hover:bg-red-400" onClick={generateGraph}>
                     Generate initial state
                   </Button>
                 </div>
