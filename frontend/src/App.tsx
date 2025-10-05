@@ -7,6 +7,38 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Play, FastForward } from 'lucide-react'
 import './App.css'
 import AdjacencyGraphViewer from './components/graph/AdjacencyGraphViewer'
+
+// Simple Modal implementation
+function ResultModal({ open, onClose, conflicts, iterations }: { open: boolean, onClose: () => void, conflicts: number, iterations: string }) {
+  if (!open) return null;
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.3)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: 'white', borderRadius: 8, padding: 32, minWidth: 320, boxShadow: '0 2px 16px rgba(0,0,0,0.2)' }}>
+        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>Algorithm Finished</h2>
+        <div style={{ marginBottom: 12 }}>
+          <span>Iterations: </span><b>{iterations}</b>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <span>Conflicts: </span><b>{conflicts}</b>
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          {conflicts === 0 ? (
+            <span style={{ color: 'green', fontWeight: 500 }}>No conflicts! Coloring is valid.</span>
+          ) : (
+            <div>
+              <span style={{ color: 'red', fontWeight: 500 }}>Conflicts remain.</span>
+              <div style={{ marginTop: 10 }}>
+                <span>Would you like to use the greedy algorithm to try to remove conflicts?</span>
+                <Button onClick={onGreedyRemove} className="w-full mt-2">Run Greedy Removal</Button>
+              </div>
+            </div>
+          )}
+        </div>
+        <Button onClick={onClose} className="w-full">Close</Button>
+      </div>
+    </div>
+  );
+}
 import factory, { type MainModule, type StateNode, type AlgorithmStartupOptions, type Graph, type ColorPalette, type ColoringMap } from "../../build/GraphColoring.js"
 
 type AlgorithmState = {
@@ -27,6 +59,7 @@ function App() {
   const [algorithmState, setAlgorithmState] = useState<AlgorithmState | null>(null);
   const [wasmModule, setWasmModule] = useState<MainModule | null>(null)
   const [algorithmName, setAlgorithmName] = useState<string>('hill_climbing');
+  const [showResultModal, setShowResultModal] = useState(false);
 
   // Load WASM module once
   useEffect(() => {
@@ -162,6 +195,10 @@ function App() {
           adjacency,
           colorArray,
         }) : prev);
+        // Show modal if finished (iterations ended or no conflicts)
+        if (stateNode.conflicts === 0 || (iterations && Number(iterations) > 0)) {
+          setShowResultModal(true);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -169,135 +206,139 @@ function App() {
   }
 
   return (
-    <div className="h-screen bg-white overflow-hidden lg:overflow-hidden overflow-y-auto">
-      <div className="lg:h-full min-h-screen lg:min-h-0 p-4 flex flex-col">
-        <div className="flex flex-col gap-4 lg:gap-4 lg:flex-row flex-1 min-h-0 max-w-7xl mx-auto w-full">
-          {/* Graph Visualization Section */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Graph Data Header */}
-            <div className="mb-2 flex flex-wrap items-center gap-3 flex-shrink-0">
-              <div className="text-sm">
-                <span className="text-gray-600">Current iterations: </span>
-                <span className="font-medium">{iterations}</span>
-              </div>
-              <div className="text-sm">
-                <span className="text-gray-600">Conflicts: </span>
-                <span className="font-medium">{algorithmState?.conflicts ?? "0"}</span>
-              </div>
-              <div className="flex gap-2">
-                <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                  {algorithmState?.lastUsedColor ?? 'None'}
+    <>
+      <div className="h-screen bg-white overflow-hidden lg:overflow-hidden overflow-y-auto">
+        <div className="lg:h-full min-h-screen lg:min-h-0 p-4 flex flex-col">
+          <div className="flex flex-col gap-4 lg:gap-4 lg:flex-row flex-1 min-h-0 max-w-7xl mx-auto w-full">
+            {/* Graph Visualization Section */}
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Graph Data Header */}
+              <div className="mb-2 flex flex-wrap items-center gap-3 flex-shrink-0">
+                <div className="text-sm">
+                  <span className="text-gray-600">Current iterations: </span>
+                  <span className="font-medium">{iterations}</span>
                 </div>
-                <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                  {algorithmState?.palette?.colors.size() ?? '0'}
+                <div className="text-sm">
+                  <span className="text-gray-600">Conflicts: </span>
+                  <span className="font-medium">{algorithmState?.conflicts ?? "0"}</span>
                 </div>
+                <div className="flex gap-2">
+                  <div className="rounded bg-gray-200 px-3 py-1 text-xs">
+                    {algorithmState?.lastUsedColor ?? 'None'}
+                  </div>
+                  <div className="rounded bg-gray-200 px-3 py-1 text-xs">
+                    {algorithmState?.palette?.colors.size() ?? '0'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Graph Area */}
+              <Card className="mb-2 flex-1 lg:flex-1 bg-gray-200 flex">
+                <CardContent className="flex h-[60vh] w-full p-0 flex-1">
+                  {algorithmState?.graph ? (
+                    <AdjacencyGraphViewer adjacency={algorithmState.adjacency} colors={algorithmState.colorArray} />
+                  ) : (
+                    <div className="m-auto text-gray-500 text-sm select-none">Generate a graph to visualize</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Control Buttons */}
+              <div className="flex gap-2 flex-shrink-0">
+                <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={stepAlgorithm}>
+                  <Play className="h-3 w-3"  />
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={runAlgorithmToEnd}>
+                  <FastForward className="h-3 w-3"  />
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 px-3">
+                  Reset
+                </Button>
               </div>
             </div>
 
-            {/* Graph Area */}
-            <Card className="mb-2 flex-1 lg:flex-1 bg-gray-200 flex">
-              <CardContent className="flex h-[60vh] w-full p-0 flex-1">
-                {algorithmState?.graph ? (
-                  <AdjacencyGraphViewer adjacency={algorithmState.adjacency} colors={algorithmState.colorArray} />
-                ) : (
-                  <div className="m-auto text-gray-500 text-sm select-none">Generate a graph to visualize</div>
-                )}
-              </CardContent>
-            </Card>
+            {/* Control Panel */}
+            <div className="lg:w-72 flex-shrink-0">
+              <Card className="lg:h-full h-auto">
+                <CardContent className="p-3 lg:h-full flex flex-col lg:overflow-hidden">
+                  {/* Graph Properties */}
+                  <div className="space-y-2 mb-3 flex-shrink-0">
+                    <div>
+                      <Label htmlFor="vertices" className="text-xs">
+                        Vertices:
+                      </Label>
+                      <Input
+                        id="vertices"
+                        type='number'
+                        value={vertices}
+                        onChange={(e) => setVertices(+e.target.value)}
+                        className="mt-1 h-8 text-xs"
+                        placeholder="Number of vertices"
+                      />
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="edges" className="text-xs">
+                        Edges:
+                      </Label>
+                      <Input
+                        id="edges"
+                        type='number'
+                        value={edges}
+                        onChange={(e) => setEdges(+e.target.value)}
+                        className="mt-1 h-8 text-xs"
+                        placeholder="Number of edges"
+                      />
+                    </div>
+                  </div>
 
-            {/* Control Buttons */}
-            <div className="flex gap-2 flex-shrink-0">
-              <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={stepAlgorithm}>
-                <Play className="h-3 w-3"  />
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={runAlgorithmToEnd}>
-                <FastForward className="h-3 w-3"  />
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 px-3">
-                Reset
-              </Button>
+                  {/* Algorithm Settings */}
+                  <div className="space-y-2 mb-3 flex-shrink-0">
+                    <div>
+                      <Label htmlFor="algorithm" className="text-xs">
+                        Algorithm dropdown
+                      </Label>
+                        <Select value={algorithmName} onValueChange={setAlgorithmName}>
+                          <SelectTrigger className="mt-1 h-8 text-xs">
+                            <SelectValue placeholder="Select algorithm" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="hill_climbing">Hill Climbing</SelectItem>
+                            <SelectItem value="simulated_annealing">Simulated Annealing</SelectItem>
+                            <SelectItem value="beam">Beam Search</SelectItem>
+                          </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="iterations" className="text-xs">
+                        Iterations
+                      </Label>
+                      <Input
+                        id="iterations"
+                        value={iterations}
+                        onChange={(e) => setIterations(e.target.value)}
+                        className="mt-1 h-8 text-xs"
+                        placeholder="Number of iterations"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Generate Button */}
+                  <div className="mt-auto flex-shrink-0">
+                    <Button className="w-full bg-red-300 text-black hover:bg-red-400" onClick={generateInitialState}>
+                      Generate initial state
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-
-          {/* Control Panel */}
-          <div className="lg:w-72 flex-shrink-0">
-            <Card className="lg:h-full h-auto">
-              <CardContent className="p-3 lg:h-full flex flex-col lg:overflow-hidden">
-                {/* Graph Properties */}
-                <div className="space-y-2 mb-3 flex-shrink-0">
-                  <div>
-                    <Label htmlFor="vertices" className="text-xs">
-                      Vertices:
-                    </Label>
-                    <Input
-                      id="vertices"
-                      type='number'
-                      value={vertices}
-                      onChange={(e) => setVertices(+e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                      placeholder="Number of vertices"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="edges" className="text-xs">
-                      Edges:
-                    </Label>
-                    <Input
-                      id="edges"
-                      type='number'
-                      value={edges}
-                      onChange={(e) => setEdges(+e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                      placeholder="Number of edges"
-                    />
-                  </div>
-                </div>
-
-                {/* Algorithm Settings */}
-                <div className="space-y-2 mb-3 flex-shrink-0">
-                  <div>
-                    <Label htmlFor="algorithm" className="text-xs">
-                      Algorithm dropdown
-                    </Label>
-                      <Select value={algorithmName} onValueChange={setAlgorithmName}>
-                        <SelectTrigger className="mt-1 h-8 text-xs">
-                          <SelectValue placeholder="Select algorithm" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="hill_climbing">Hill Climbing</SelectItem>
-                          <SelectItem value="simulated_annealing">Simulated Annealing</SelectItem>
-                          <SelectItem value="beam">Beam Search</SelectItem>
-                        </SelectContent>
-                      </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="iterations" className="text-xs">
-                      Iterations
-                    </Label>
-                    <Input
-                      id="iterations"
-                      value={iterations}
-                      onChange={(e) => setIterations(e.target.value)}
-                      className="mt-1 h-8 text-xs"
-                      placeholder="Number of iterations"
-                    />
-                  </div>
-                </div>
-
-                {/* Generate Button */}
-                <div className="mt-auto flex-shrink-0">
-                  <Button className="w-full bg-red-300 text-black hover:bg-red-400" onClick={generateInitialState}>
-                    Generate initial state
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </div>
-    </div>
+      {/* Result Modal */}
+      <ResultModal open={showResultModal} onClose={() => setShowResultModal(false)} conflicts={algorithmState?.conflicts ?? 0} iterations={iterations} />
+    </>
   )
 }
 

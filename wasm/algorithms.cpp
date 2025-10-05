@@ -135,12 +135,6 @@ bool HillClimbingColoringIterator::step()
     }
     if (finished_)
     {
-        if (!greedyDone_ && conflicts_ > 0)
-        {
-            std::cout << "Performing greedy conflict removal...\n";
-            greedyRemoveConflicts(current_);
-            greedyDone_ = true;
-        }
         return false;
     }
     auto bestV = selectNextNode(current_);
@@ -219,12 +213,6 @@ bool SimulatedAnnealingColoringIterator::step()
     }
     if (finished_)
     {
-        if (!greedyDone_ && current_.conflicts > 0)
-        {
-            std::cout << "Performing greedy conflict removal...\n";
-            greedyRemoveConflicts(current_);
-            greedyDone_ = true;
-        }
         return false;
     }
     auto bestV = selectNextNode(current_);
@@ -304,12 +292,6 @@ bool BeamColoringIterator::step()
     }
     if (finished_)
     {
-        if (!greedyDone_ && !beam_.empty() && beam_[0].conflicts > 0)
-        {
-            std::cout << "Performing greedy conflict removal...\n";
-            greedyRemoveConflicts(beam_[0]);
-            greedyDone_ = true;
-        }
         return false;
     }
     for (auto &current : beam_)

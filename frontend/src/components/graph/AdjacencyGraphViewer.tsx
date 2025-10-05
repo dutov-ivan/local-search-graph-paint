@@ -1,13 +1,14 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import Graphology from 'graphology';
-import { SigmaContainer, useLoadGraph } from '@react-sigma/core';
+import { SigmaContainer, useLoadGraph, useSigma, useRegisterEvents, useSetSettings, useCamera } from '@react-sigma/core';
 import '@react-sigma/core/lib/style.css';
 
 export interface AdjacencyGraphViewerProps {
   adjacency: number[][]; // array of neighbor index arrays
   colors?: { index: number; r: number; g: number; b: number; }[] | (undefined | { index: number; r: number; g: number; b: number; })[];
   className?: string;
+  disableHoverEffect?: boolean;
 }
 
 function buildGraph(adjacency: number[][], colors?: (undefined | { index: number; r: number; g: number; b: number; })[]) {
@@ -49,10 +50,90 @@ const Loader: FC<AdjacencyGraphViewerProps> = ({ adjacency, colors }) => {
   return null;
 };
 
-export const AdjacencyGraphViewer: FC<AdjacencyGraphViewerProps> = ({ adjacency, colors, className }) => (
-  <SigmaContainer style={{ width: '100%', height: '100%', minHeight: '400px' }} className={className}>
+const HoverEffects: FC<{ disableHoverEffect?: boolean }> = ({ disableHoverEffect }) => {
+  const sigma = useSigma();
+  const registerEvents = useRegisterEvents();
+  const setSettings = useSetSettings();
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+
+  /**
+   * Register hover events
+   */
+  useEffect(() => {
+    registerEvents({
+      enterNode: (event) => setHoveredNode(event.node),
+      leaveNode: () => setHoveredNode(null),
+    });
+  }, [registerEvents]);
+
+  /**
+   * When hovered node changes, update the node and edge reducers
+   */
+  useEffect(() => {
+    setSettings({
+      nodeReducer: (node, data) => {
+        const graph = sigma.getGraph();
+        const newData = { ...data, highlighted: data.highlighted || false };
+
+        if (!disableHoverEffect && hoveredNode) {
+          if (node === hoveredNode || graph.neighbors(hoveredNode).includes(node)) {
+            newData.highlighted = true;
+          } else {
+            (newData as any).color = '#E2E2E2';
+            newData.highlighted = false;
+          }
+        }
+        return newData;
+      },
+      edgeReducer: (edge, data) => {
+        const graph = sigma.getGraph();
+        const newData = { ...data, hidden: false };
+
+        if (!disableHoverEffect && hoveredNode && !graph.extremities(edge).includes(hoveredNode)) {
+          newData.hidden = true;
+        }
+        return newData;
+      },
+    });
+  }, [hoveredNode, setSettings, sigma, disableHoverEffect]);
+
+  return null;
+};
+
+
+export const FocusOnNode: FC<{ node: string | null; move?: boolean }> = ({ node, move }) => {
+  // Get sigma
+  const sigma = useSigma();
+  // Get camera hook
+  const { gotoNode } = useCamera();
+
+  /**
+   * When the selected item changes, highlighted the node and center the camera on it.
+   */
+  useEffect(() => {
+    if (!node) return;
+    sigma.getGraph().setNodeAttribute(node, 'highlighted', true);
+    if (move) gotoNode(node);
+
+    return () => {
+      sigma.getGraph().setNodeAttribute(node, 'highlighted', false);
+    };
+  }, [node, move, sigma, gotoNode]);
+
+  return null;
+};
+
+
+export const AdjacencyGraphViewer: FC<AdjacencyGraphViewerProps> = ({ adjacency, colors, className, disableHoverEffect }) => {
+  const [selectedNode] = useState<string | null>(null);
+
+  return (
+  <SigmaContainer style={{ width: '100%', height: '100%', minHeight: '400px' }} className={className} settings={{ enableEdgeEvents: true }}>
     <Loader adjacency={adjacency} colors={colors} />
+    <HoverEffects disableHoverEffect={disableHoverEffect} />
+    <FocusOnNode node={selectedNode} />
   </SigmaContainer>
-);
+  )
+};
 
 export default AdjacencyGraphViewer;

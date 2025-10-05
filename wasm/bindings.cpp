@@ -244,6 +244,14 @@ EMSCRIPTEN_BINDINGS(Graph)
         .function("getNodes", &Graph::getNodes);
 }
 
+// Run greedy removal on the current algorithm state
+void runGreedyRemoveConflicts()
+{
+    if (!globalState.algorithm)
+        throw std::runtime_error("Algorithm not initialized");
+    greedyRemoveConflicts(const_cast<StateNode &>(globalState.algorithm->getState()));
+}
+
 EMSCRIPTEN_BINDINGS(my_module)
 {
     function("setInitialAlgorithmState", &setInitialAlgorithmState);
@@ -269,4 +277,5 @@ EMSCRIPTEN_BINDINGS(my_module)
             return nullptr;
         // getState returns const ref; cast away const for embind (JS won't mutate internal fields directly)
         return const_cast<StateNode *>(&globalState.algorithm->getState()); }, allow_raw_pointers());
+    function("runGreedyRemoveConflicts", &runGreedyRemoveConflicts);
 }
