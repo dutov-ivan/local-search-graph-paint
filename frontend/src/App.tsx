@@ -6,13 +6,14 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Play, FastForward } from 'lucide-react'
 import './App.css'
-import factory, { type MainModule, type StateNode, type AlgorithmStartupOptions, type GraphNode, type Graph } from "../../build/GraphColoring.js"
+import GraphViewer from './components/graph/GraphViewer'
+import factory, { type MainModule, type StateNode, type AlgorithmStartupOptions, type GraphNode, type Graph, type ColorPalette } from "../../build/GraphColoring.js"
 
 type AlgorithmState = {
   graph: Graph,
   conflicts: number,
   lastUsedColor: number,
-  paletteSize: number,
+  palette: ColorPalette,
 }
 
 function App() {
@@ -56,13 +57,12 @@ function App() {
     if (!stateNode) return
     // Extract graph nodes
     const graph = stateNode.graph
-    const paletteSize = stateNode.palette ? stateNode.palette.colors.size() : null
     deletePreviousAlgorithmState();
     setAlgorithmState({
       graph: graph!,
       conflicts: stateNode.conflicts,
       lastUsedColor: stateNode.lastUsedColorIndex,
-      paletteSize: paletteSize!,
+      palette: stateNode.palette!,
     })
   }
 
@@ -87,18 +87,19 @@ function App() {
                   {algorithmState?.lastUsedColor ?? 'None'}
                 </div>
                 <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                  {algorithmState?.paletteSize ?? '0'}
+                  {algorithmState?.palette?.colors.size() ?? '0'}
                 </div>
               </div>
             </div>
 
             {/* Graph Area */}
-            <Card className="mb-2 flex-1 lg:flex-1 min-h-[50vh] bg-gray-200 flex">
-              <CardContent className="flex h-full w-full items-center justify-center p-3 flex-1">
-                <div className="text-gray-500">
-                  {/* Graph visualization will go here */}
-                  Graph Visualization Area
-                </div>
+            <Card className="mb-2 flex-1 lg:flex-1 bg-gray-200 flex">
+              <CardContent className="flex h-[60vh] w-full p-0 flex-1">
+                {algorithmState?.graph ? (
+                  <GraphViewer wasmGraph={algorithmState.graph} palette={algorithmState.palette} />
+                ) : (
+                  <div className="m-auto text-gray-500 text-sm select-none">Generate a graph to visualize</div>
+                )}
               </CardContent>
             </Card>
 
