@@ -15,7 +15,7 @@ std::mt19937 &Init::getRng()
 // GlobalState implementations
 GlobalState::GlobalState() : algorithm(nullptr), initialStateNode(nullptr) {}
 
-GlobalState::~GlobalState() = default; // Now we have complete types available
+GlobalState::~GlobalState() = default;
 
 // Define the global objects
 Init init(42);

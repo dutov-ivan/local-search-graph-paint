@@ -4,7 +4,7 @@
 #include <memory>
 
 // Forward declarations
-struct Algorithm;
+struct AlgorithmIterator;
 struct StateNode;
 
 struct Init
@@ -20,8 +20,8 @@ private:
 // Global state
 struct GlobalState
 {
-    std::unique_ptr<Algorithm> algorithm;
-    std::unique_ptr<StateNode> initialStateNode;
+    std::unique_ptr<AlgorithmIterator> algorithm;
+    std::shared_ptr<StateNode> initialStateNode;
     int iterationCount = 0;
 
     GlobalState();

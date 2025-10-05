@@ -6,14 +6,17 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Play, FastForward } from 'lucide-react'
 import './App.css'
-import GraphViewer from './components/graph/GraphViewer'
-import factory, { type MainModule, type StateNode, type AlgorithmStartupOptions, type GraphNode, type Graph, type ColorPalette } from "../../build/GraphColoring.js"
+import AdjacencyGraphViewer from './components/graph/AdjacencyGraphViewer'
+import factory, { type MainModule, type StateNode, type AlgorithmStartupOptions, type Graph, type ColorPalette, type ColoringMap } from "../../build/GraphColoring.js"
 
 type AlgorithmState = {
-  graph: Graph,
+  graph: Graph, // retained for algorithms, but not needed for visualization anymore
   conflicts: number,
   lastUsedColor: number,
   palette: ColorPalette,
+  coloringMap: ColoringMap
+  adjacency: number[][],
+  colorArray: { index: number; r: number; g: number; b: number; }[]
 }
 
 function App() {
@@ -32,11 +35,8 @@ function App() {
 
   const deletePreviousAlgorithmState = () =>{
     if (algorithmState) {
-      const nodeVec = algorithmState.graph.getNodes();
-      for (let i = 0; i < nodeVec.size(); i++) {
-        (nodeVec.get(i) as GraphNode).delete();
-      }
-      algorithmState.graph.delete();
+      // We no longer iterate node wrappers, just delete the graph & palette/coloring maps if desired.
+      try { algorithmState.graph.delete(); } catch { /* ignore */ }
     }
   }
 
@@ -57,13 +57,115 @@ function App() {
     if (!stateNode) return
     // Extract graph nodes
     const graph = stateNode.graph
+    console.log("Generated graph:", graph);
+    // Build adjacency & color arrays from C++ helpers
+    const adjacencyVal = wasmModule.getGraphAdjacency(graph);
+    const adjacency: number[][] = [];
+    for (let i = 0; i < adjacencyVal.length; i++) {
+      const row = adjacencyVal[i];
+      const inner: number[] = [];
+      for (let j = 0; j < row.length; j++) inner.push(row[j]);
+      adjacency.push(inner);
+    }
+    const colorArrayVal = wasmModule.getInitialColorArray();
+    const colorArray: { index: number; r: number; g: number; b: number; }[] = [];
+    for (let i = 0; i < colorArrayVal.length; i++) {
+      const c = colorArrayVal[i];
+      if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r: 0, g:0, b:0 });
+    }
     deletePreviousAlgorithmState();
     setAlgorithmState({
       graph: graph!,
       conflicts: stateNode.conflicts,
       lastUsedColor: stateNode.lastUsedColorIndex,
       palette: stateNode.palette!,
+      coloringMap: stateNode.coloring!,
+      adjacency,
+      colorArray,
     })
+  }
+
+  const stepAlgorithm = () => {
+    if (!wasmModule) {
+      console.log("WASM module not loaded yet.");
+      return;
+    }
+
+    if (!algorithmState){
+      console.log("No algorithm state available to step.");
+      return;
+    }
+    try {
+      wasmModule.algorithmStep();
+      const stateNode: StateNode | null = wasmModule.getCurrentAlgorithmState();
+      console.log("Stepped algorithm, new state:", stateNode);
+      if (stateNode) {
+        const graph = stateNode.graph!;
+        const adjacencyVal = wasmModule.getGraphAdjacency(graph);
+        const adjacency: number[][] = [];
+        for (let i = 0; i < adjacencyVal.length; i++) {
+          const row = adjacencyVal[i];
+          const inner: number[] = [];
+          for (let j = 0; j < row.length; j++) inner.push(row[j]);
+          adjacency.push(inner);
+        }
+        const colorArrayVal = wasmModule.getCurrentColorArray();
+        const colorArray: { index: number; r: number; g: number; b: number; }[] = [];
+        for (let i = 0; i < colorArrayVal.length; i++) {
+          const c = colorArrayVal[i];
+          if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r: 0, g:0, b:0 });
+        }
+        setAlgorithmState((prev) => prev ? ({
+          graph,
+          conflicts: stateNode.conflicts,
+          coloringMap: stateNode.coloring!,
+          lastUsedColor: stateNode.lastUsedColorIndex,
+          palette: stateNode.palette!,
+          adjacency,
+          colorArray,
+        }) : prev);
+      }
+      // Optionally could mark finished when cont is false
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  const runAlgorithmToEnd = () => {
+    if (!wasmModule) return;
+    if (!algorithmState) return;
+    try {
+      wasmModule.algorithmRunToEnd();
+      const stateNode: StateNode | null = wasmModule.getCurrentAlgorithmState();
+      if (stateNode) {
+        const graph = stateNode.graph!;
+        const adjacencyVal = wasmModule.getGraphAdjacency(graph);
+        const adjacency: number[][] = [];
+        for (let i = 0; i < adjacencyVal.length; i++) {
+          const row = adjacencyVal[i];
+          const inner: number[] = [];
+          for (let j = 0; j < row.length; j++) inner.push(row[j]);
+          adjacency.push(inner);
+        }
+        const colorArrayVal = wasmModule.getCurrentColorArray();
+        const colorArray: { index: number; r: number; g: number; b: number; }[] = [];
+        for (let i = 0; i < colorArrayVal.length; i++) {
+          const c = colorArrayVal[i];
+          if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r: 0, g:0, b:0 });
+        }
+        setAlgorithmState((prev) => prev ? ({
+          graph,
+          conflicts: stateNode.conflicts,
+          lastUsedColor: stateNode.lastUsedColorIndex,
+          palette: stateNode.palette!,
+          coloringMap: stateNode.coloring!,
+          adjacency,
+          colorArray,
+        }) : prev);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   return (
@@ -96,7 +198,7 @@ function App() {
             <Card className="mb-2 flex-1 lg:flex-1 bg-gray-200 flex">
               <CardContent className="flex h-[60vh] w-full p-0 flex-1">
                 {algorithmState?.graph ? (
-                  <GraphViewer wasmGraph={algorithmState.graph} palette={algorithmState.palette} />
+                  <AdjacencyGraphViewer adjacency={algorithmState.adjacency} colors={algorithmState.colorArray} />
                 ) : (
                   <div className="m-auto text-gray-500 text-sm select-none">Generate a graph to visualize</div>
                 )}
@@ -105,11 +207,11 @@ function App() {
 
             {/* Control Buttons */}
             <div className="flex gap-2 flex-shrink-0">
-              <Button size="sm" variant="outline" className="h-8 w-8 p-0">
-                <Play className="h-3 w-3" />
+              <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={stepAlgorithm}>
+                <Play className="h-3 w-3"  />
               </Button>
-              <Button size="sm" variant="outline" className="h-8 w-8 p-0">
-                <FastForward className="h-3 w-3" />
+              <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={runAlgorithmToEnd}>
+                <FastForward className="h-3 w-3"  />
               </Button>
               <Button size="sm" variant="outline" className="h-8 px-3">
                 Reset

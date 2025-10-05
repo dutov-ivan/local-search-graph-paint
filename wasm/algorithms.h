@@ -128,59 +128,92 @@ public:
     UsedColorsMap usedColors;
 };
 
-struct Algorithm
+struct AlgorithmIterator
 {
-    virtual ~Algorithm() = default;
-    virtual ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) = 0;
+    virtual ~AlgorithmIterator() = default;
+    // Step one iteration, returns true if can continue, false if done
+    virtual bool step() = 0;
+    // Step until done
+    virtual void runToEnd()
+    {
+        while (step())
+            ;
+    }
+    // Get current coloring
+    virtual const ColoringMap &getColoring() const = 0;
+    // Get current state
+    virtual const StateNode &getState() const = 0;
 };
 
-class HillClimbingColoring : public Algorithm
+class HillClimbingColoringIterator : public AlgorithmIterator
 {
 public:
-    // Default ctor seeds RNG using std::random_device (no high_resolution_clock)
-    HillClimbingColoring()
-        : rng_(std::mt19937(std::random_device{}())) {}
-
-    // Prefer passing an RNG so the caller controls determinism/seeding
-    explicit HillClimbingColoring(std::mt19937 rng)
-        : rng_(std::move(rng)) {}
-
-    ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) override;
+    HillClimbingColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng = std::mt19937(std::random_device{}()));
+    bool step() override;
+    void runToEnd() override
+    {
+        while (step())
+            ;
+    }
+    const ColoringMap &getColoring() const override;
+    const StateNode &getState() const override;
 
 private:
+    StateNode current_;
+    int maxIterations_;
+    int iteration_;
+    int conflicts_;
+    bool finished_;
     std::mt19937 rng_;
+    bool greedyDone_;
 };
 
-class SimulatedAnnealingColoring : public Algorithm
+class SimulatedAnnealingColoringIterator : public AlgorithmIterator
 {
 public:
-    SimulatedAnnealingColoring()
-        : rng_(std::mt19937(std::random_device{}())) {}
-
-    explicit SimulatedAnnealingColoring(std::mt19937 rng)
-        : rng_(std::move(rng)) {}
-
-    ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) override;
+    SimulatedAnnealingColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng = std::mt19937(std::random_device{}()));
+    bool step() override;
+    void runToEnd() override
+    {
+        while (step())
+            ;
+    }
+    const ColoringMap &getColoring() const override;
+    const StateNode &getState() const override;
 
 private:
+    StateNode current_;
+    int maxIterations_;
+    int iteration_;
+    bool finished_;
     std::mt19937 rng_;
+    bool greedyDone_;
     double schedule_(int t);
 };
 
-class BeamColoring : public Algorithm
+class BeamColoringIterator : public AlgorithmIterator
 {
 public:
-    BeamColoring()
-        : rng_(std::mt19937(std::random_device{}())) {}
-
-    explicit BeamColoring(std::mt19937 rng)
-        : rng_(std::move(rng)) {}
-
-    ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) override;
+    BeamColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng = std::mt19937(std::random_device{}()));
+    bool step() override;
+    void runToEnd() override
+    {
+        while (step())
+            ;
+    }
+    const ColoringMap &getColoring() const override;
+    const StateNode &getState() const override;
 
 private:
+    std::vector<StateNode> beam_;
+    std::vector<StateNode> candidates_;
     int k_;
+    int paletteSize_;
+    int maxIterations_;
+    int iteration_;
+    bool finished_;
     std::mt19937 rng_;
+    bool greedyDone_;
 };
 
 std::vector<StateNode> kLeast(std::vector<StateNode> &arr, int k);
