@@ -75,7 +75,8 @@
         "mutex": "cpp",
         "print": "cpp",
         "queue": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "coroutine": "cpp"
     },
     "cmake.sourceDirectory": "/home/ivan/code/local-search-graph-paint/wasm"
 }

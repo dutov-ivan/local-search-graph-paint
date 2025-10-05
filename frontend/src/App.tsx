@@ -1,31 +1,69 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, RotateCcw, FastForward } from 'lucide-react'
+import { Play, FastForward } from 'lucide-react'
 import './App.css'
-import factory from "../../build/GraphColoring.js"
+import factory, { type MainModule, type StateNode, type AlgorithmStartupOptions, type GraphNode, type Graph } from "../../build/GraphColoring.js"
+
+type AlgorithmState = {
+  graph: Graph,
+  conflicts: number,
+  lastUsedColor: number,
+  paletteSize: number,
+}
 
 function App() {
   const [iterations, setIterations] = useState('10000')
   const [vertices, setVertices] = useState(50)
   const [edges, setEdges] = useState(120)
+  // Holds the initial algorithm state (nodes, conflicts, lastUsedColor, paletteSize, etc)
+  const [algorithmState, setAlgorithmState] = useState<AlgorithmState | null>(null);
+  const [wasmModule, setWasmModule] = useState<MainModule | null>(null)
+  const [algorithmName, setAlgorithmName] = useState<string>('hill_climbing');
 
-  const generateGraph = async () => {
-    const options = {
-      numVertices: vertices,
-      numEdges: edges,
-      allowSelfLoops: false,
+  // Load WASM module once
+  useEffect(() => {
+    factory().then((Module) => setWasmModule(Module))
+  }, [])
+
+  const deletePreviousAlgorithmState = () =>{
+    if (algorithmState) {
+      const nodeVec = algorithmState.graph.getNodes();
+      for (let i = 0; i < nodeVec.size(); i++) {
+        (nodeVec.get(i) as GraphNode).delete();
+      }
+      algorithmState.graph.delete();
     }
+  }
 
-    await factory().then((Module) => {
-      const graph = Module.generateRandomGraph(options)
-      console.log(graph.getNodes());
+  const generateInitialState = () => {
+    if (!wasmModule) return
+    // Set initial algorithm state in WASM
+    const startupOptions: AlgorithmStartupOptions = {
+      algorithmName,
+      iterations: Number(iterations),
+      generationOptions: {
+        numVertices: vertices,
+        numEdges: edges,
+        allowSelfLoops: false,
+      }
+    }
+    wasmModule.setInitialAlgorithmState(startupOptions)
+    const stateNode: StateNode | null = wasmModule.getInitialStateNode()
+    if (!stateNode) return
+    // Extract graph nodes
+    const graph = stateNode.graph
+    const paletteSize = stateNode.palette ? stateNode.palette.colors.size() : null
+    deletePreviousAlgorithmState();
+    setAlgorithmState({
+      graph: graph!,
+      conflicts: stateNode.conflicts,
+      lastUsedColor: stateNode.lastUsedColorIndex,
+      paletteSize: paletteSize!,
     })
-
-
   }
 
   return (
@@ -38,18 +76,18 @@ function App() {
             <div className="mb-2 flex flex-wrap items-center gap-3 flex-shrink-0">
               <div className="text-sm">
                 <span className="text-gray-600">Current iterations: </span>
-                <span className="font-medium">100</span>
+                <span className="font-medium">{iterations}</span>
               </div>
               <div className="text-sm">
                 <span className="text-gray-600">Conflicts: </span>
-                <span className="font-medium">0</span>
+                <span className="font-medium">{algorithmState?.conflicts ?? "0"}</span>
               </div>
               <div className="flex gap-2">
                 <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                  LastUsedColor
+                  {algorithmState?.lastUsedColor ?? 'None'}
                 </div>
                 <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                  PaletteSize
+                  {algorithmState?.paletteSize ?? '0'}
                 </div>
               </div>
             </div>
@@ -92,7 +130,7 @@ function App() {
                       id="vertices"
                       type='number'
                       value={vertices}
-                      onChange={(e) => setVertices(e.target.value)}
+                      onChange={(e) => setVertices(+e.target.value)}
                       className="mt-1 h-8 text-xs"
                       placeholder="Number of vertices"
                     />
@@ -106,7 +144,7 @@ function App() {
                       id="edges"
                       type='number'
                       value={edges}
-                      onChange={(e) => setEdges(e.target.value)}
+                      onChange={(e) => setEdges(+e.target.value)}
                       className="mt-1 h-8 text-xs"
                       placeholder="Number of edges"
                     />
@@ -119,17 +157,16 @@ function App() {
                     <Label htmlFor="algorithm" className="text-xs">
                       Algorithm dropdown
                     </Label>
-                    <Select>
-                      <SelectTrigger className="mt-1 h-8 text-xs">
-                        <SelectValue placeholder="Select algorithm" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="greedy">Greedy</SelectItem>
-                        <SelectItem value="dsatur">DSATUR</SelectItem>
-                        <SelectItem value="welsh-powell">Welsh-Powell</SelectItem>
-                        <SelectItem value="local-search">Local Search</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <Select value={algorithmName} onValueChange={setAlgorithmName}>
+                        <SelectTrigger className="mt-1 h-8 text-xs">
+                          <SelectValue placeholder="Select algorithm" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hill_climbing">Hill Climbing</SelectItem>
+                          <SelectItem value="simulated_annealing">Simulated Annealing</SelectItem>
+                          <SelectItem value="beam">Beam Search</SelectItem>
+                        </SelectContent>
+                      </Select>
                   </div>
 
                   <div>
@@ -148,7 +185,7 @@ function App() {
 
                 {/* Generate Button */}
                 <div className="mt-auto flex-shrink-0">
-                  <Button className="w-full bg-red-300 text-black hover:bg-red-400" onClick={generateGraph}>
+                  <Button className="w-full bg-red-300 text-black hover:bg-red-400" onClick={generateInitialState}>
                     Generate initial state
                   </Button>
                 </div>

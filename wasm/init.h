@@ -1,6 +1,11 @@
 #pragma once
 #include <random>
 #include <iostream>
+#include <memory>
+
+// Forward declarations
+struct Algorithm;
+struct StateNode;
 
 struct Init
 {
@@ -12,5 +17,17 @@ private:
     std::mt19937 rng_;
 };
 
-// Declare the global object defined elsewhere
+// Global state
+struct GlobalState
+{
+    std::unique_ptr<Algorithm> algorithm;
+    std::unique_ptr<StateNode> initialStateNode;
+    int iterationCount = 0;
+
+    GlobalState();
+    ~GlobalState(); // Custom destructor to handle incomplete types
+};
+
+// Declare the global objects defined elsewhere
 extern Init init;
+extern GlobalState globalState;

@@ -4,6 +4,7 @@
 #include "graph.h"
 #include <unordered_map>
 #include <unordered_set>
+#include <map> // For embind-friendly map bindings
 #include <algorithm>
 #include <iostream>
 #include <random>
@@ -18,7 +19,7 @@ struct Color
     int r, g, b;
 };
 
-typedef std::unordered_map<GraphNode *, Color> ColoringMap;
+typedef std::map<std::shared_ptr<GraphNode>, Color> ColoringMap;
 
 class ColorPalette
 {
@@ -47,6 +48,8 @@ public:
         return presetCount_;
     }
 
+    const std::vector<Color> &getColors() const { return presetColors_; }
+
     auto begin() const { return presetColors_.begin(); }
     auto end() const { return presetColors_.end(); }
 
@@ -63,7 +66,8 @@ private:
     std::vector<Color> presetColors_;
 };
 
-typedef std::unordered_map<int, int> UsedColorsMap;
+// Same rationale as above: switch to std::map for embind compatibility.
+typedef std::map<int, int> UsedColorsMap;
 
 struct StateNode
 {
@@ -127,7 +131,7 @@ public:
 struct Algorithm
 {
     virtual ~Algorithm() = default;
-    virtual std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) = 0;
+    virtual ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) = 0;
 };
 
 class HillClimbingColoring : public Algorithm
@@ -141,7 +145,7 @@ public:
     explicit HillClimbingColoring(std::mt19937 rng)
         : rng_(std::move(rng)) {}
 
-    std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
+    ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) override;
 
 private:
     std::mt19937 rng_;
@@ -156,7 +160,7 @@ public:
     explicit SimulatedAnnealingColoring(std::mt19937 rng)
         : rng_(std::move(rng)) {}
 
-    std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
+    ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) override;
 
 private:
     std::mt19937 rng_;
@@ -172,7 +176,7 @@ public:
     explicit BeamColoring(std::mt19937 rng)
         : rng_(std::move(rng)) {}
 
-    std::unordered_map<GraphNode *, Color> run(std::shared_ptr<Graph> graph, int iterations) override;
+    ColoringMap run(std::unique_ptr<StateNode> initialState, int iterations) override;
 
 private:
     int k_;
@@ -180,5 +184,7 @@ private:
 };
 
 std::vector<StateNode> kLeast(std::vector<StateNode> &arr, int k);
+
+int computeConflicts(const Graph &graph, const ColoringMap &coloring);
 
 #endif // ALGORITHM_H

@@ -23,7 +23,7 @@ static Color generateExtraColor(int order)
             channel(151, 197)};
 }
 
-static int countNodeConflicts(GraphNode *node, const ColoringMap &coloring)
+static int countNodeConflicts(const std::shared_ptr<GraphNode> &node, const ColoringMap &coloring)
 {
     int conflictCount = 0;
     auto itNode = coloring.find(node);
@@ -32,7 +32,7 @@ static int countNodeConflicts(GraphNode *node, const ColoringMap &coloring)
         throw std::runtime_error("Node not found in coloring map");
     }
     int nodeColor = itNode->second.index;
-    for (auto *neighbor : node->getNeighbors())
+    for (const auto &neighbor : node->getNeighbors())
     {
         auto itNeighbor = coloring.find(neighbor);
         if (itNeighbor == coloring.end())
@@ -45,7 +45,7 @@ static int countNodeConflicts(GraphNode *node, const ColoringMap &coloring)
 
 void greedyRemoveConflicts(StateNode &state)
 {
-    for (auto *node : state.graph->getNodes())
+    for (const auto &node : state.graph->getNodes())
     {
         int conflicts = countNodeConflicts(node, state.coloring);
         if (conflicts > 0)
@@ -69,52 +69,22 @@ void greedyRemoveConflicts(StateNode &state)
 }
 
 // Evaluate number of conflicting edges (endpoints share the same color)
-static int computeConflicts(std::shared_ptr<const Graph> graph, const ColoringMap &coloring)
+int computeConflicts(const Graph &graph, const ColoringMap &coloring)
 {
     long long conflictCount = 0;
-    for (auto *node : graph->getNodes())
+    for (const auto &node : graph.getNodes())
     {
         conflictCount += countNodeConflicts(node, coloring);
     }
     return static_cast<int>(conflictCount / 2);
 }
 
-std::tuple<ColorPalette, ColoringMap, std::unordered_map<int, int>> initialState(std::shared_ptr<Graph> graph, std::mt19937 &rng_)
+std::shared_ptr<GraphNode> selectNextNode(const StateNode &state)
 {
-    const auto &nodes = graph->getNodes();
-
-    // compute maxDegree once
-    int maxDegree = 0;
-    for (auto *n : nodes)
-        maxDegree = std::max<int>(maxDegree, n->getNeighbors().size());
-
-    ColorPalette palette(maxDegree + 1); // enough colors for any node's incident edges
-
-    ColoringMap coloring;
-    std::unordered_map<int, int> usedColors;
-    std::uniform_int_distribution<int> colorDist(0, static_cast<int>(palette.size()) - 1);
-    for (auto *node : nodes)
-    {
-        coloring[node] = palette.getColor(colorDist(rng_));
-        usedColors[coloring[node].index]++;
-    }
-
-    return {palette, coloring, usedColors};
-}
-
-StateNode initialStateNode(std::shared_ptr<Graph> graph, std::mt19937 &rng_)
-{
-    auto [palette, coloring, usedColors] = initialState(graph, rng_);
-    int conflicts = computeConflicts(graph, coloring);
-    return StateNode{graph, std::move(palette), std::move(coloring), conflicts, 0, std::move(usedColors)};
-}
-
-GraphNode *selectNextNode(const StateNode &state)
-{
-    GraphNode *bestV = nullptr;
+    std::shared_ptr<GraphNode> bestV = nullptr;
     int bestIncident = -1;
     int bestColorUse = INT_MAX; // we prefer the least-used color
-    for (auto *v : state.graph->getNodes())
+    for (const auto &v : state.graph->getNodes())
     {
         auto itv = state.coloring.find(v);
         if (itv == state.coloring.end())
@@ -123,7 +93,7 @@ GraphNode *selectNextNode(const StateNode &state)
 
         // how many neighbors share v's color
         int incident = 0;
-        for (auto *nbr : v->getNeighbors())
+        for (const auto &nbr : v->getNeighbors())
         {
             auto itn = state.coloring.find(nbr);
             if (itn != state.coloring.end() && itn->second.index == vcol)
@@ -149,15 +119,15 @@ GraphNode *selectNextNode(const StateNode &state)
     return bestV;
 }
 
-std::unordered_map<GraphNode *, Color> HillClimbingColoring::run(std::shared_ptr<Graph> graph, int iterations)
+ColoringMap HillClimbingColoring::run(std::unique_ptr<StateNode> initialState, int iterations)
 {
-    auto current = initialStateNode(graph, rng_);
+    auto current = std::move(*initialState); // Copy to stack by dereferencing
     int conflicts = current.conflicts;
     std::cout << "Initial conflicts: " << conflicts << std::endl;
 
     for (int it = 0; it < iterations; ++it)
     {
-        GraphNode *bestV = selectNextNode(current);
+        auto bestV = selectNextNode(current);
         if (!bestV)
             break; // no conflicting vertex -> done
 
@@ -220,9 +190,9 @@ std::unordered_map<GraphNode *, Color> HillClimbingColoring::run(std::shared_ptr
     return current.coloring;
 }
 
-std::unordered_map<GraphNode *, Color> SimulatedAnnealingColoring::run(std::shared_ptr<Graph> graph, int iterations)
+ColoringMap SimulatedAnnealingColoring::run(std::unique_ptr<StateNode> initialState, int iterations)
 {
-    auto current = initialStateNode(graph, rng_);
+    auto current = std::move(*initialState); // Copy to stack by dereferencing
     std::cout << "Initial conflicts: " << current.conflicts << std::endl;
 
     for (int t = 1; t <= iterations; ++t)
@@ -235,7 +205,7 @@ std::unordered_map<GraphNode *, Color> SimulatedAnnealingColoring::run(std::shar
         }
 
         // 1) choose a vertex that contributes to conflicts (highest incident conflicts)
-        GraphNode *bestV = selectNextNode(current);
+        auto bestV = selectNextNode(current);
 
         if (bestV == nullptr)
         {
@@ -306,24 +276,26 @@ double SimulatedAnnealingColoring::schedule_(int t)
     return 100.0 * std::pow(0.95, t);
 }
 
-std::unordered_map<GraphNode *, Color> BeamColoring::run(std::shared_ptr<Graph> graph, int iterations)
+ColoringMap BeamColoring::run(std::unique_ptr<StateNode> initialState, int iterations)
 {
-    auto start = initialStateNode(graph, rng_);
+    auto start = std::move(*initialState); // Copy to stack by dereferencing
     std::cout << "Initial conflicts: " << start.conflicts << std::endl;
     k_ = (start.palette.size() - 1) / 2; // Set beam width to palette size - 1 for the color of current node
 
     std::vector<StateNode> beam;
     beam.reserve(k_);
+
+    int paletteSize = start.palette.size(); // Store palette size before move
     beam.push_back(std::move(start));
 
     std::vector<StateNode> candidates;
-    candidates.reserve(k_ * start.palette.size());
+    candidates.reserve(k_ * paletteSize);
 
     for (int it = 0; it < iterations; ++it)
     {
         for (auto &current : beam)
         {
-            GraphNode *bestV = selectNextNode(current);
+            auto bestV = selectNextNode(current);
             if (!bestV)
                 break;
             int oldColor = current.coloring[bestV].index;

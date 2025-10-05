@@ -4,22 +4,22 @@
 #include <chrono>
 #include <unordered_map>
 
-void GraphNode::addNeighbor(GraphNode *neighbor)
+void GraphNode::addNeighbor(const std::shared_ptr<GraphNode> &neighbor)
 {
     neighbors.push_back(neighbor);
 }
 
-const std::vector<GraphNode *> &GraphNode::getNeighbors() const
+const std::vector<std::shared_ptr<GraphNode>> &GraphNode::getNeighbors() const
 {
     return neighbors;
 }
 
-void Graph::addNode(GraphNode *node)
+void Graph::addNode(const std::shared_ptr<GraphNode> &node)
 {
     nodes_.push_back(node);
 }
 
-void Graph::addEdge(GraphNode *a, GraphNode *b)
+void Graph::addEdge(const std::shared_ptr<GraphNode> &a, const std::shared_ptr<GraphNode> &b)
 {
     a->addNeighbor(b);
     b->addNeighbor(a);
@@ -30,7 +30,7 @@ void Graph::reserveNodes(std::size_t n)
     nodes_.reserve(n);
 }
 
-const std::vector<GraphNode *> &Graph::getNodes() const
+const std::vector<std::shared_ptr<GraphNode>> &Graph::getNodes() const
 {
     return nodes_;
 }
@@ -46,7 +46,7 @@ Graph generateRandomGraph(const RandomGraphOptions &options, std::mt19937 &rng)
     graph.reserveNodes(options.numVertices);
     for (std::size_t i = 0; i < options.numVertices; ++i)
     {
-        graph.addNode(new GraphNode());
+        graph.addNode(std::make_shared<GraphNode>());
     }
 
     // Set up RNG
@@ -74,11 +74,11 @@ Graph generateRandomGraph(const RandomGraphOptions &options, std::mt19937 &rng)
         if (!options.allowSelfLoops && a == b)
             continue;
 
-        const std::vector<GraphNode *> &nodes = graph.getNodes();
+        const auto &nodes = graph.getNodes();
         if (existingEdges[a] != b)
         {
-            GraphNode *u = nodes[uIndex];
-            GraphNode *v = nodes[vIndex];
+            auto u = nodes[uIndex];
+            auto v = nodes[vIndex];
             graph.addEdge(u, v);
             existingEdges[a] = b;
             ++edgesAdded;
