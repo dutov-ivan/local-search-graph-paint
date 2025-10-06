@@ -120,72 +120,58 @@ std::shared_ptr<GraphNode> selectNextNode(const StateNode &state)
 }
 
 HillClimbingColoringIterator::HillClimbingColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng)
-    : current_(std::move(*initialState)), maxIterations_(maxIterations), iteration_(0), conflicts_(current_.conflicts), finished_(false), rng_(std::move(rng)), greedyDone_(false)
+    : current_(std::move(*initialState)), maxIterations_(maxIterations), iteration_(0), finished_(false), rng_(std::move(rng)), greedyDone_(false)
 {
-    std::cout << "Initial conflicts: " << conflicts_ << std::endl;
 }
 
-bool HillClimbingColoringIterator::step()
+StateNode HillClimbingColoringIterator::step()
 {
-    if (finished_)
-        return false;
     if (iteration_ >= maxIterations_)
     {
-        finished_ = true;
+        current_.continueIteration = false;
+        return current_;
     }
-    if (finished_)
-    {
-        return false;
-    }
+
     auto bestV = selectNextNode(current_);
     if (!bestV)
     {
-        finished_ = true;
-        return true;
+        current_.continueIteration = false;
+        return current_;
     }
+
     int oldColor = current_.coloring[bestV].index;
-    int oldInc = countNodeConflicts(bestV, current_.coloring);
     int oldH = current_.computeH();
     int bestH = oldH;
-    int bestConflicts = conflicts_;
     int bestColor = oldColor;
     bool improved = false;
     for (int c = 0; c < (int)current_.palette.size(); ++c)
     {
         if (c == oldColor)
             continue;
-        current_.coloring[bestV] = current_.palette.getColor(c);
-        int newInc = countNodeConflicts(bestV, current_.coloring);
-        int newConflicts = conflicts_ - oldInc + newInc;
-        current_.conflicts = newConflicts;
-        int newH = current_.computeH();
-        current_.coloring[bestV] = current_.palette.getColor(oldColor);
-        current_.conflicts = conflicts_;
+        StateNode snapshot(current_.graph, current_.palette, current_.coloring, current_.conflicts, current_.usedColors);
+        snapshot.forward(current_.palette.getColor(c), bestV);
+        int newH = snapshot.computeH();
         if (newH < bestH)
         {
             bestH = newH;
-            bestConflicts = newConflicts;
             bestColor = c;
             improved = true;
         }
     }
     if (improved)
     {
-        conflicts_ = bestConflicts;
-        current_.usedColors[oldColor]--;
-        current_.coloring[bestV] = current_.palette.getColor(bestColor);
-        current_.usedColors[bestColor]++;
+        current_.forward(current_.palette.getColor(bestColor), bestV);
     }
     else
     {
         finished_ = true;
+        current_.continueIteration = false;
     }
     iteration_++;
-    if (finished_)
-    {
-        std::cout << "Final conflicts: " << conflicts_ << "\n";
-    }
-    return !finished_;
+    current_.node = bestV;
+    current_.color = current_.palette.getColor(bestColor);
+    current_.continueIteration = !finished_;
+    return current_;
 }
 
 const ColoringMap &HillClimbingColoringIterator::getColoring() const { return current_.coloring; }
@@ -194,13 +180,15 @@ const StateNode &HillClimbingColoringIterator::getState() const { return current
 SimulatedAnnealingColoringIterator::SimulatedAnnealingColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng)
     : current_(std::move(*initialState)), maxIterations_(maxIterations), iteration_(1), finished_(false), rng_(std::move(rng)), greedyDone_(false)
 {
-    std::cout << "Initial conflicts: " << current_.conflicts << std::endl;
 }
 
-bool SimulatedAnnealingColoringIterator::step()
+StateNode SimulatedAnnealingColoringIterator::step()
 {
     if (finished_)
-        return false;
+    {
+        current_.continueIteration = false;
+        return current_;
+    }
     if (iteration_ > maxIterations_)
     {
         finished_ = true;
@@ -213,13 +201,15 @@ bool SimulatedAnnealingColoringIterator::step()
     }
     if (finished_)
     {
-        return false;
+        current_.continueIteration = false;
+        return current_;
     }
     auto bestV = selectNextNode(current_);
     if (!bestV)
     {
         finished_ = true;
-        return true;
+        current_.continueIteration = false;
+        return current_;
     }
     int oldColorIdx = current_.coloring[bestV].index;
     int selectedColorIdx = oldColorIdx;
@@ -255,15 +245,14 @@ bool SimulatedAnnealingColoringIterator::step()
     {
         current_.coloring[bestV] = savedOldColor;
         current_.conflicts = oldConflicts;
-        current_.usedColors[oldColorIdx]++;
         current_.usedColors[selectedColorIdx]--;
+        current_.usedColors[oldColorIdx]++;
     }
     iteration_++;
-    if (finished_)
-    {
-        std::cout << "Final conflicts: " << current_.conflicts << "\n";
-    }
-    return !finished_;
+    current_.node = bestV;
+    current_.color = current_.palette.getColor(accept ? selectedColorIdx : oldColorIdx);
+    current_.continueIteration = !finished_;
+    return current_;
 }
 
 const ColoringMap &SimulatedAnnealingColoringIterator::getColoring() const { return current_.coloring; }
@@ -282,17 +271,23 @@ BeamColoringIterator::BeamColoringIterator(std::unique_ptr<StateNode> initialSta
     candidates_.reserve(k_ * paletteSize_);
 }
 
-bool BeamColoringIterator::step()
+StateNode BeamColoringIterator::step()
 {
     if (finished_)
-        return false;
+    {
+        if (!beam_.empty())
+            beam_[0].continueIteration = false;
+        return beam_.empty() ? StateNode() : beam_[0];
+    }
     if (iteration_ >= maxIterations_)
     {
         finished_ = true;
     }
     if (finished_)
     {
-        return false;
+        if (!beam_.empty())
+            beam_[0].continueIteration = false;
+        return beam_.empty() ? StateNode() : beam_[0];
     }
     for (auto &current : beam_)
     {
@@ -314,13 +309,17 @@ bool BeamColoringIterator::step()
             newUsedColors[c]++;
             int newInc = countNodeConflicts(bestV, newColoring);
             int newConflicts = current.conflicts - oldInc + newInc;
-            candidates_.emplace_back(
+            StateNode newState(
                 current.graph,
                 current.palette,
                 std::move(newColoring),
                 newConflicts,
-                c,
                 std::move(newUsedColors));
+            newState.node = bestV;
+            newState.color = current.palette.getColor(c);
+            newState.conflicts = newConflicts;
+            newState.continueIteration = true;
+            candidates_.push_back(std::move(newState));
         }
     }
     beam_ = kLeast(candidates_, k_);
@@ -339,7 +338,9 @@ bool BeamColoringIterator::step()
     {
         std::cout << "Final conflicts: " << beam_[0].conflicts << "\n";
     }
-    return !finished_;
+    if (!beam_.empty())
+        beam_[0].continueIteration = !finished_;
+    return beam_.empty() ? StateNode() : beam_[0];
 }
 
 const ColoringMap &BeamColoringIterator::getColoring() const

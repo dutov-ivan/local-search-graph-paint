@@ -38,7 +38,7 @@ StateNode initialStateNode(const RandomGraphOptions &options, std::mt19937 &rng_
     }
 
     int conflicts = computeConflicts(*graph, coloring);
-    return StateNode{graph, std::move(palette), std::move(coloring), conflicts, 0, std::move(usedColors)};
+    return StateNode{graph, std::move(palette), std::move(coloring), conflicts, std::move(usedColors)};
 }
 
 std::unique_ptr<AlgorithmIterator> initializeAlgorithm(std::unique_ptr<StateNode> initialState, const std::string &algorithmName, int iterations)
@@ -68,23 +68,11 @@ void setInitialAlgorithmState(const AlgorithmStartupOptions &options)
     // Create fresh initial state
     StateNode node = initialStateNode(options.generationOptions, init.getRng());
     // Store a preserved copy for retrieval (shared_ptr graph so shallow share is fine)
-    globalState.initialStateNode = std::make_unique<StateNode>(
-        node.graph,
-        node.palette,
-        node.coloring,
-        node.conflicts,
-        node.lastUsedColorIndex,
-        node.usedColors);
+    globalState.initialStateNode = std::make_unique<StateNode>(node.graph, node.palette, node.coloring, node.conflicts, node.usedColors);
 
     // Create a separate working copy for the algorithm iterator so that the preserved
     // initial state remains accessible to JS unchanged.
-    auto workingCopy = std::make_unique<StateNode>(
-        node.graph,
-        node.palette,
-        node.coloring,
-        node.conflicts,
-        node.lastUsedColorIndex,
-        node.usedColors);
+    auto workingCopy = std::make_unique<StateNode>(node.graph, node.palette, node.coloring, node.conflicts, node.usedColors);
 
     globalState.algorithm = initializeAlgorithm(std::move(workingCopy), options.algorithmName, options.iterations);
     globalState.iterationCount = options.iterations; // store requested iteration limit
@@ -230,8 +218,10 @@ EMSCRIPTEN_BINDINGS(StateNode)
         .property("graph", &StateNode::graph)
         .property("palette", &StateNode::palette)
         .property("coloring", &StateNode::coloring)
+        .property("node", &StateNode::node)
+        .property("color", &StateNode::color)
         .property("conflicts", &StateNode::conflicts)
-        .property("lastUsedColorIndex", &StateNode::lastUsedColorIndex)
+        .property("continueIteration", &StateNode::continueIteration)
         .property("usedColors", &StateNode::usedColors)
         .function("computeH", &StateNode::computeH);
 }
@@ -244,12 +234,40 @@ EMSCRIPTEN_BINDINGS(Graph)
         .function("getNodes", &Graph::getNodes);
 }
 
-// Run greedy removal on the current algorithm state
+// Run greedy removal on the current algorithm state and recompute conflicts/usage
 void runGreedyRemoveConflicts()
 {
     if (!globalState.algorithm)
         throw std::runtime_error("Algorithm not initialized");
-    greedyRemoveConflicts(const_cast<StateNode &>(globalState.algorithm->getState()));
+    StateNode &st = const_cast<StateNode &>(globalState.algorithm->getState());
+    greedyRemoveConflicts(st);
+    st.conflicts = computeConflicts(*st.graph, st.coloring);
+    // recompute usedColors map
+    st.usedColors.clear();
+    for (auto &kv : st.coloring)
+    {
+        st.usedColors[kv.second.index]++;
+    }
+}
+
+// Reinitialize algorithm iterator from preserved initialStateNode without regenerating graph
+void reinitializeAlgorithm(const std::string &algorithmName, int iterations)
+{
+    if (!globalState.initialStateNode)
+        throw std::runtime_error("No preserved initial state to reinitialize from");
+    // Make a working copy so original stays immutable for further resets
+    auto workingCopy = std::make_unique<StateNode>(*globalState.initialStateNode);
+    globalState.algorithm = initializeAlgorithm(std::move(workingCopy), algorithmName, iterations);
+    globalState.iterationCount = iterations;
+}
+
+EMSCRIPTEN_BINDINGS(StepResult)
+{
+    value_object<StepResult>("StepResult")
+        .field("node", &StepResult::node)
+        .field("color", &StepResult::color)
+        .field("conflicts", &StepResult::conflicts)
+        .field("continueIteration", &StepResult::continueIteration);
 }
 
 EMSCRIPTEN_BINDINGS(my_module)
@@ -261,11 +279,13 @@ EMSCRIPTEN_BINDINGS(my_module)
     function("getInitialColorArray", &getInitialColorArray);
     function("getCurrentColorArray", &getCurrentColorArray);
     // New algorithm control bindings
-    function("algorithmStep", +[]() -> bool
+    // step now returns pair<int, Color>
+    function("algorithmStep", +[]() -> StepResult
              {
         if (!globalState.algorithm)
             throw std::runtime_error("Algorithm not initialized");
-        return globalState.algorithm->step(); });
+        StateNode st = globalState.algorithm->step(); // copy
+        return StepResult(st.node, st.color, st.conflicts, st.continueIteration); });
     function("algorithmRunToEnd", +[]()
                                   {
         if (!globalState.algorithm)
@@ -278,4 +298,14 @@ EMSCRIPTEN_BINDINGS(my_module)
         // getState returns const ref; cast away const for embind (JS won't mutate internal fields directly)
         return const_cast<StateNode *>(&globalState.algorithm->getState()); }, allow_raw_pointers());
     function("runGreedyRemoveConflicts", &runGreedyRemoveConflicts);
+    // Reset only the active algorithm iterator, preserving the stored initialStateNode so JS can re-use it.
+    function("resetAlgorithm", +[]()
+                               {
+        globalState.algorithm.reset();
+        globalState.iterationCount = 0; });
+    function("reinitializeAlgorithm", &reinitializeAlgorithm);
+    function("getCurrentIteration", +[]() -> int
+             {
+        if (!globalState.algorithm) return 0;
+        return globalState.algorithm->currentIteration(); });
 }
