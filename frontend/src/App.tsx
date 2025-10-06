@@ -9,7 +9,7 @@ import './App.css'
 import AdjacencyGraphViewer from './components/graph/AdjacencyGraphViewer'
 
 // Simple Modal implementation
-function ResultModal({ open, onClose, conflicts, iterations }: { open: boolean, onClose: () => void, conflicts: number, iterations: string }) {
+function ResultModal({ open, onClose, conflicts, iterations, onGreedyRemove }: { open: boolean, onClose: () => void, conflicts: number, iterations: string, onGreedyRemove: () => void }) {
   if (!open) return null;
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.3)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -60,6 +60,21 @@ function App() {
   const [wasmModule, setWasmModule] = useState<MainModule | null>(null)
   const [algorithmName, setAlgorithmName] = useState<string>('hill_climbing');
   const [showResultModal, setShowResultModal] = useState(false);
+  const [finished, setFinished] = useState(false);
+  // Store a copy of the initial coloring + adjacency so we can restore on reset
+  const [initialSnapshot, setInitialSnapshot] = useState<AlgorithmState | null>(null);
+  const [algorithmReady, setAlgorithmReady] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
+
+  // Derived: number of distinct colors currently used in coloring
+  const usedColorCount = (() => {
+    if (!algorithmState) return 0;
+    const set = new Set<number>();
+    for (const c of algorithmState.colorArray) {
+      if (c.index !== -1) set.add(c.index);
+    }
+    return set.size;
+  })();
 
   // Load WASM module once
   useEffect(() => {
@@ -107,15 +122,21 @@ function App() {
       if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r: 0, g:0, b:0 });
     }
     deletePreviousAlgorithmState();
-    setAlgorithmState({
+    const newState: AlgorithmState = {
       graph: graph!,
       conflicts: stateNode.conflicts,
-      lastUsedColor: stateNode.lastUsedColorIndex,
+      // initial state has no meaningful "last used" color yet
+      lastUsedColor: -1,
       palette: stateNode.palette!,
       coloringMap: stateNode.coloring!,
       adjacency,
       colorArray,
-    })
+    };
+    setAlgorithmState(newState);
+    setInitialSnapshot(newState); // keep immutable reference for reset
+    setFinished(false);
+    setShowResultModal(false);
+    setAlgorithmReady(true);
   }
 
   const stepAlgorithm = () => {
@@ -148,15 +169,26 @@ function App() {
           const c = colorArrayVal[i];
           if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r: 0, g:0, b:0 });
         }
-        setAlgorithmState((prev) => prev ? ({
+        const updated: AlgorithmState = {
           graph,
           conflicts: stateNode.conflicts,
           coloringMap: stateNode.coloring!,
-          lastUsedColor: stateNode.lastUsedColorIndex,
+          lastUsedColor: stateNode.color?.index ?? -1,
           palette: stateNode.palette!,
           adjacency,
           colorArray,
-        }) : prev);
+        };
+        setAlgorithmState(updated);
+        // Update current iteration/step from wasm
+        try {
+          // @ts-ignore
+          const iter = (wasmModule as any).getCurrentIteration?.() ?? currentStep + 1;
+          setCurrentStep(iter);
+        } catch {}
+        if (stateNode.conflicts === 0 || !stateNode.continueIteration) {
+          setFinished(true);
+          setShowResultModal(true);
+        }
       }
       // Optionally could mark finished when cont is false
     } catch (e) {
@@ -186,24 +218,95 @@ function App() {
           const c = colorArrayVal[i];
           if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r: 0, g:0, b:0 });
         }
-        setAlgorithmState((prev) => prev ? ({
+        const updated: AlgorithmState = {
           graph,
           conflicts: stateNode.conflicts,
-          lastUsedColor: stateNode.lastUsedColorIndex,
+          lastUsedColor: stateNode.color?.index ?? -1,
           palette: stateNode.palette!,
           coloringMap: stateNode.coloring!,
           adjacency,
           colorArray,
-        }) : prev);
-        // Show modal if finished (iterations ended or no conflicts)
-        if (stateNode.conflicts === 0 || (iterations && Number(iterations) > 0)) {
-          setShowResultModal(true);
-        }
+        };
+        setAlgorithmState(updated);
+        try {
+          // @ts-ignore
+          const iter = (wasmModule as any).getCurrentIteration?.() ?? currentStep;
+          setCurrentStep(iter);
+        } catch {}
+        setFinished(true);
+        setShowResultModal(true);
       }
     } catch (e) {
       console.error(e);
     }
   }
+
+  const resetToInitial = () => {
+    if (!wasmModule) return;
+    if (!initialSnapshot) return; // Nothing to reset
+    try {
+      // Reset algorithm instance on WASM side (clears iterator)
+      // @ts-ignore binding added
+      if ((wasmModule as any).resetAlgorithm) (wasmModule as any).resetAlgorithm();
+    } catch (e) {
+      console.warn('Failed to reset algorithm on wasm side', e);
+    }
+    // Restore snapshot (deep copy of arrays to avoid accidental mutation)
+    const restoreAdjacency = initialSnapshot.adjacency.map(r => [...r]);
+    const restoreColors = initialSnapshot.colorArray.map(c => ({...c}));
+    setAlgorithmState({
+      ...initialSnapshot,
+      adjacency: restoreAdjacency,
+      colorArray: restoreColors,
+    });
+    setFinished(false);
+    setShowResultModal(false);
+    // Reinitialize algorithm iterator so step / run can work again immediately
+    try {
+      // @ts-ignore
+      if ((wasmModule as any).reinitializeAlgorithm) (wasmModule as any).reinitializeAlgorithm(algorithmName, Number(iterations));
+      setAlgorithmReady(true);
+      setCurrentStep(0);
+    } catch (e) {
+      console.error('Failed to reinitialize algorithm after reset', e);
+      setAlgorithmReady(false);
+    }
+  };
+
+  const runGreedyRemove = () => {
+    if (!wasmModule) return;
+    try {
+      // @ts-ignore binding is available
+      (wasmModule as any).runGreedyRemoveConflicts();
+      const stateNode: StateNode | null = wasmModule.getCurrentAlgorithmState();
+      if (stateNode) {
+        // rebuild color array
+        const colorArrayVal = wasmModule.getCurrentColorArray();
+        const colorArray: { index: number; r: number; g: number; b: number; }[] = [];
+        for (let i = 0; i < colorArrayVal.length; i++) {
+          const c = colorArrayVal[i];
+          if (c) colorArray.push({ index: c.index, r: c.r, g: c.g, b: c.b }); else colorArray.push({ index: -1, r:0,g:0,b:0});
+        }
+        setAlgorithmState(prev => prev ? ({
+          ...prev,
+          conflicts: stateNode.conflicts,
+          lastUsedColor: stateNode.color?.index ?? prev.lastUsedColor,
+          coloringMap: stateNode.coloring!,
+          colorArray,
+        }) : prev);
+        try {
+          // @ts-ignore
+          const iter = (wasmModule as any).getCurrentIteration?.() ?? currentStep;
+          setCurrentStep(iter);
+        } catch {}
+        if (stateNode.conflicts === 0) {
+          setFinished(true);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   return (
     <>
@@ -215,19 +318,26 @@ function App() {
               {/* Graph Data Header */}
               <div className="mb-2 flex flex-wrap items-center gap-3 flex-shrink-0">
                 <div className="text-sm">
-                  <span className="text-gray-600">Current iterations: </span>
-                  <span className="font-medium">{iterations}</span>
+                  <span className="text-gray-600">Current step: </span>
+                  <span className="font-medium">{currentStep}</span>
                 </div>
                 <div className="text-sm">
                   <span className="text-gray-600">Conflicts: </span>
                   <span className="font-medium">{algorithmState?.conflicts ?? "0"}</span>
                 </div>
                 <div className="flex gap-2">
-                  <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                    {algorithmState?.lastUsedColor ?? 'None'}
+                  <div className="rounded bg-gray-200 px-2 py-1 text-xs flex items-center gap-1">
+                    { (algorithmState && algorithmState.lastUsedColor >= 0) ? (
+                      (() => {
+                        const colorObj = algorithmState.colorArray.find(c => c.index === algorithmState.lastUsedColor);
+                        if (!colorObj) return <span>None</span>;
+                        const style: React.CSSProperties = { width: 18, height: 12, backgroundColor: `rgb(${colorObj.r},${colorObj.g},${colorObj.b})`, border: '1px solid #888', borderRadius: 2 };
+                        return <div style={style} title={`Color #${colorObj.index}`}></div>;
+                      })()
+                    ) : 'None' }
                   </div>
-                  <div className="rounded bg-gray-200 px-3 py-1 text-xs">
-                    {algorithmState?.palette?.colors.size() ?? '0'}
+                  <div className="rounded bg-gray-200 px-3 py-1 text-xs" title="Colors currently in use">
+                    {usedColorCount}
                   </div>
                 </div>
               </div>
@@ -245,13 +355,13 @@ function App() {
 
               {/* Control Buttons */}
               <div className="flex gap-2 flex-shrink-0">
-                <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={stepAlgorithm}>
+                <Button size="sm" variant="outline" disabled={finished || !algorithmReady} className="h-8 w-8 p-0" onClick={stepAlgorithm}>
                   <Play className="h-3 w-3"  />
                 </Button>
-                <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={runAlgorithmToEnd}>
+                <Button size="sm" variant="outline" disabled={finished || !algorithmReady} className="h-8 w-8 p-0" onClick={runAlgorithmToEnd}>
                   <FastForward className="h-3 w-3"  />
                 </Button>
-                <Button size="sm" variant="outline" className="h-8 px-3">
+                <Button size="sm" variant="outline" className="h-8 px-3" onClick={resetToInitial} disabled={!initialSnapshot}>
                   Reset
                 </Button>
               </div>
@@ -337,7 +447,7 @@ function App() {
         </div>
       </div>
       {/* Result Modal */}
-      <ResultModal open={showResultModal} onClose={() => setShowResultModal(false)} conflicts={algorithmState?.conflicts ?? 0} iterations={iterations} />
+      <ResultModal open={showResultModal} onClose={() => setShowResultModal(false)} conflicts={algorithmState?.conflicts ?? 0} iterations={iterations} onGreedyRemove={runGreedyRemove} />
     </>
   )
 }

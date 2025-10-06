@@ -69,39 +69,127 @@ private:
 // Same rationale as above: switch to std::map for embind compatibility.
 typedef std::map<int, int> UsedColorsMap;
 
+struct StepResult
+{
+    std::shared_ptr<GraphNode> node;
+    Color color;
+    int conflicts;
+    bool continueIteration;
+
+    StepResult(int conflicts = 0)
+        : node(nullptr), color(), conflicts(conflicts), continueIteration(false)
+    {
+    }
+
+    StepResult(bool continueIter)
+        : node(nullptr), color(), conflicts(0), continueIteration(continueIter)
+    {
+    }
+
+    StepResult(std::shared_ptr<GraphNode> n, Color c, int conf, bool cont)
+        : node(std::move(n)), color(c), conflicts(conf), continueIteration(cont)
+    {
+    }
+};
+
 struct StateNode
 {
 public:
     int computeH() const
     {
-        auto it = usedColors.find(lastUsedColorIndex);
+        auto it = usedColors.find(color.index);
         int colorUsage = (it != usedColors.end()) ? it->second : 0;
         return conflicts * 100 - colorUsage;
+    }
+
+    void forward(Color c, std::shared_ptr<GraphNode> node)
+    {
+        // Efficiently update conflicts using oldInc/newInc trick
+        int oldColorIdx = coloring.at(node).index;
+        int oldInc = 0, newInc = 0;
+        for (const auto &nbr : node->getNeighbors())
+        {
+            auto it = coloring.find(nbr);
+            if (it != coloring.end())
+            {
+                if (it->second.index == oldColorIdx)
+                    oldInc++;
+                if (it->second.index == c.index)
+                    newInc++;
+            }
+        }
+        // Update coloring and usedColors
+        coloring[node] = c;
+        usedColors[oldColorIdx]--;
+        usedColors[c.index]++;
+        // Update conflicts
+        int newConflicts = conflicts - oldInc + newInc;
+        this->node = node;
+        color = c;
+        conflicts = newConflicts;
+        continueIteration = true;
     }
 
     StateNode()
         : graph(nullptr),
           palette(0), // Initialize with 0 preset colors
           coloring(),
+          usedColors(),
+          node(nullptr),
+          color(),
           conflicts(0),
-          lastUsedColorIndex(0),
-          usedColors()
+          continueIteration(false)
     {
     }
 
-    // Parameterized constructor
-    StateNode(std::shared_ptr<Graph> g, ColorPalette p, ColoringMap c, int conf, int lastColor, UsedColorsMap used)
-        : graph(std::move(g)), palette(std::move(p)), coloring(std::move(c)),
-          conflicts(conf), lastUsedColorIndex(lastColor), usedColors(std::move(used)) {}
+    StateNode(std::shared_ptr<Graph> g, ColorPalette p, ColoringMap c, int conflicts, UsedColorsMap used)
+        : graph(std::move(g)),
+          palette(std::move(p)),
+          coloring(std::move(c)),
+          usedColors(std::move(used)),
+          node(nullptr),
+          color(),
+          conflicts(conflicts),
+          continueIteration(false)
+    {
+    }
 
     // default constructor, destructor ok
     StateNode(StateNode &&other) noexcept
         : graph(std::move(other.graph)),
           palette(std::move(other.palette)),
           coloring(std::move(other.coloring)),
+          usedColors(std::move(other.usedColors)),
+          node(std::move(other.node)),
+          color(other.color),
           conflicts(other.conflicts),
-          lastUsedColorIndex(other.lastUsedColorIndex),
-          usedColors(std::move(other.usedColors)) {}
+          continueIteration(other.continueIteration) {}
+
+    StateNode(const StateNode &other)
+        : graph(other.graph),
+          palette(other.palette),
+          coloring(other.coloring),
+          usedColors(other.usedColors),
+          node(other.node),
+          color(other.color),
+          conflicts(other.conflicts),
+          continueIteration(other.continueIteration) {}
+
+    StateNode &operator=(const StateNode &other)
+    {
+        if (this != &other)
+        {
+            graph = other.graph;
+            palette = other.palette;
+            coloring = other.coloring;
+            usedColors = other.usedColors;
+            node = other.node;
+            color = other.color;
+            conflicts = other.conflicts;
+            continueIteration = other.continueIteration;
+        }
+        return *this;
+    }
 
     StateNode &operator=(StateNode &&other) noexcept
     {
@@ -110,59 +198,63 @@ public:
             graph = std::move(other.graph);
             palette = std::move(other.palette);
             coloring = std::move(other.coloring);
-            conflicts = other.conflicts;
-            lastUsedColorIndex = other.lastUsedColorIndex;
             usedColors = std::move(other.usedColors);
+            node = std::move(other.node);
+            color = other.color;
+            conflicts = other.conflicts;
+            continueIteration = other.continueIteration;
         }
         return *this;
     }
 
-    StateNode(const StateNode &) = delete; // disable copy if necessary
-    StateNode &operator=(const StateNode &) = delete;
-
     std::shared_ptr<Graph> graph;
     ColorPalette palette;
     ColoringMap coloring;
-    int conflicts;
-    int lastUsedColorIndex;
     UsedColorsMap usedColors;
+    // Flattened former StepResult data:
+    std::shared_ptr<GraphNode> node; // last modified / selected node
+    Color color;                     // color applied in last step
+    int conflicts;                   // current number of conflicts
+    bool continueIteration;          // whether algorithm can continue
 };
 
 struct AlgorithmIterator
 {
     virtual ~AlgorithmIterator() = default;
-    // Step one iteration, returns true if can continue, false if done
-    virtual bool step() = 0;
+    // Step one iteration, returns tuple (node, color, continue)
+    virtual StateNode step() = 0; // now returns the whole (copied) state
     // Step until done
     virtual void runToEnd()
     {
-        while (step())
+        while (step().continueIteration)
             ;
     }
     // Get current coloring
     virtual const ColoringMap &getColoring() const = 0;
     // Get current state
     virtual const StateNode &getState() const = 0;
+    // Expose current iteration counter
+    virtual int currentIteration() const = 0;
 };
 
 class HillClimbingColoringIterator : public AlgorithmIterator
 {
 public:
     HillClimbingColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng = std::mt19937(std::random_device{}()));
-    bool step() override;
+    StateNode step() override;
     void runToEnd() override
     {
-        while (step())
+        while (step().continueIteration)
             ;
     }
     const ColoringMap &getColoring() const override;
     const StateNode &getState() const override;
+    int currentIteration() const override { return iteration_; }
 
 private:
     StateNode current_;
     int maxIterations_;
     int iteration_;
-    int conflicts_;
     bool finished_;
     std::mt19937 rng_;
     bool greedyDone_;
@@ -172,14 +264,15 @@ class SimulatedAnnealingColoringIterator : public AlgorithmIterator
 {
 public:
     SimulatedAnnealingColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng = std::mt19937(std::random_device{}()));
-    bool step() override;
+    StateNode step() override;
     void runToEnd() override
     {
-        while (step())
+        while (step().continueIteration)
             ;
     }
     const ColoringMap &getColoring() const override;
     const StateNode &getState() const override;
+    int currentIteration() const override { return iteration_; }
 
 private:
     StateNode current_;
@@ -195,14 +288,15 @@ class BeamColoringIterator : public AlgorithmIterator
 {
 public:
     BeamColoringIterator(std::unique_ptr<StateNode> initialState, int maxIterations, std::mt19937 rng = std::mt19937(std::random_device{}()));
-    bool step() override;
+    StateNode step() override;
     void runToEnd() override
     {
-        while (step())
+        while (step().continueIteration)
             ;
     }
     const ColoringMap &getColoring() const override;
     const StateNode &getState() const override;
+    int currentIteration() const override { return iteration_; }
 
 private:
     std::vector<StateNode> beam_;
@@ -219,5 +313,6 @@ private:
 std::vector<StateNode> kLeast(std::vector<StateNode> &arr, int k);
 
 int computeConflicts(const Graph &graph, const ColoringMap &coloring);
+void greedyRemoveConflicts(StateNode &state);
 
 #endif // ALGORITHM_H
